@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "sample-neon-mountains",
+  "title": "Sample Neon Mountains",
+  "canvas": {
+    "width": 720,
+    "height": 1560,
+    "safeCrop": "center-cover",
+    "backgroundColor": "#070A18"
+  },
+  "sensor": {
+    "mode": "rotationVector",
+    "maxTiltDegrees": 18,
+    "smoothing": 0.12,
+    "intensity": 1.0
+  },
+  "layers": [
+    { "id": "sky", "asset": "res://drawable/layer_sky", "z": 0.1, "parallax": { "x": 6, "y": 3 }, "scale": 1.04, "opacity": 1.0, "blendMode": "normal" },
+    { "id": "mountains_far", "asset": "res://drawable/layer_mountains_far", "z": 0.35, "parallax": { "x": 18, "y": 10 }, "scale": 1.08, "opacity": 1.0, "blendMode": "normal" },
+    { "id": "mountains_near", "asset": "res://drawable/layer_mountains_near", "z": 0.75, "parallax": { "x": 38, "y": 22 }, "scale": 1.12, "opacity": 1.0, "blendMode": "normal" },
+    { "id": "foreground", "asset": "res://drawable/layer_foreground", "z": 1.0, "parallax": { "x": 56, "y": 30 }, "scale": 1.16, "opacity": 1.0, "blendMode": "normal" }
+  ],
+  "effects": []
+}
