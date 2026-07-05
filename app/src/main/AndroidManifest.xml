@@ -7,9 +7,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@drawable/daily_live_wallpapers_icon"
         android:label="Daily Live Wallpapers"
-        android:roundIcon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/daily_live_wallpapers_icon"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 

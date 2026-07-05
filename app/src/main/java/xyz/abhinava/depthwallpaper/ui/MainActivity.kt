@@ -18,6 +18,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -40,8 +41,12 @@ class MainActivity : Activity() {
     private lateinit var galleryContainer: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var content: LinearLayout
+    private lateinit var loadingOverlay: FrameLayout
+    private lateinit var overlayStatus: TextView
+    private lateinit var overlayProgress: ProgressBar
     private lateinit var repository: SceneRepository
     private var isRefreshing = false
+    private var isDownloading = false
     private var pullStartY = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,7 +84,12 @@ class MainActivity : Activity() {
         content.addView(progress)
         content.addView(galleryContainer)
         scroll.addView(content)
-        setContentView(scroll)
+        loadingOverlay = createLoadingOverlay()
+        val root = FrameLayout(this).apply {
+            addView(scroll)
+            addView(loadingOverlay)
+        }
+        setContentView(root)
         applyInsets()
         installPullToRefresh()
 
@@ -266,6 +276,8 @@ class MainActivity : Activity() {
     }
 
     private fun downloadPackAndOpenSetter(pack: WallpaperPack) {
+        if (isDownloading) return
+        isDownloading = true
         showProgress("Starting download for ${pack.title}…")
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -281,6 +293,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
+            isDownloading = false
             result.onSuccess { scene ->
                 hideProgress("Downloaded ${scene.title}")
                 openWallpaperPicker()
@@ -290,15 +303,52 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun createLoadingOverlay(): FrameLayout {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(22), dp(18), dp(22), dp(18))
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFD0C7E8.toInt(), dp(18), 1)
+        }
+        overlayStatus = TextView(this).apply {
+            text = "Loading…"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(12))
+        }
+        overlayProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8))
+        }
+        panel.addView(overlayStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panel.addView(overlayProgress)
+        return FrameLayout(this).apply {
+            visibility = View.GONE
+            isClickable = true
+            setBackgroundColor(0x99000000.toInt())
+            addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
+                leftMargin = dp(28)
+                rightMargin = dp(28)
+            })
+        }
+    }
+
     private fun showProgress(message: String, value: Int? = null, max: Int? = null) {
         status.text = message
+        overlayStatus.text = message
         progress.visibility = View.VISIBLE
+        loadingOverlay.visibility = View.VISIBLE
         if (value != null && max != null && max > 0) {
             progress.isIndeterminate = false
             progress.max = max
             progress.progress = value.coerceIn(0, max)
+            overlayProgress.isIndeterminate = false
+            overlayProgress.max = max
+            overlayProgress.progress = value.coerceIn(0, max)
         } else {
             progress.isIndeterminate = true
+            overlayProgress.isIndeterminate = true
         }
     }
 
@@ -307,6 +357,9 @@ class MainActivity : Activity() {
         progress.visibility = View.GONE
         progress.isIndeterminate = false
         progress.progress = 0
+        loadingOverlay.visibility = View.GONE
+        overlayProgress.isIndeterminate = false
+        overlayProgress.progress = 0
     }
 
     private fun friendlyFailure(prefix: String, error: Throwable): String {
