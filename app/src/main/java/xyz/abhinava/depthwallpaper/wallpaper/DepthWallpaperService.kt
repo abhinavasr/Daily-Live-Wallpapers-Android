@@ -94,6 +94,10 @@ class DepthWallpaperService : WallpaperService() {
             } finally {
                 try { holder.unlockCanvasAndPost(canvas) } catch (_: Throwable) {}
             }
+            if (visible && renderer?.hasAnimations == true) {
+                handler.removeCallbacks(redraw)
+                handler.postDelayed(redraw, 33L)
+            }
         }
     }
 }

@@ -7,9 +7,37 @@ data class DepthScene(
     val title: String,
     val canvas: CanvasSpec,
     val sensor: SensorSpec,
-    val layers: List<LayerSpec>
+    val layers: List<LayerSpec>,
+    val animatedLayers: List<LayerSpec>
 ) {
     companion object {
+        private fun parseLayer(item: JSONObject): LayerSpec {
+            val parallax = item.optJSONObject("parallax") ?: JSONObject()
+            val placement = item.optJSONObject("placement") ?: JSONObject()
+            val animation = item.optJSONObject("animation") ?: item.optJSONObject("effect")
+            return LayerSpec(
+                id = item.getString("id"),
+                asset = item.getString("asset"),
+                z = item.optDouble("z", 0.5).toFloat(),
+                parallaxX = parallax.optDouble("x", 0.0).toFloat(),
+                parallaxY = parallax.optDouble("y", 0.0).toFloat(),
+                scale = item.optDouble("scale", 1.0).toFloat(),
+                opacity = item.optDouble("opacity", 1.0).toFloat(),
+                fit = item.optString("fit", item.optString("renderMode", "auto")),
+                anchorX = placement.optDouble("anchorX", 0.5).toFloat(),
+                anchorY = placement.optDouble("anchorY", 0.5).toFloat(),
+                pivotX = placement.optDouble("pivotX", 0.5).toFloat(),
+                pivotY = placement.optDouble("pivotY", 0.5).toFloat(),
+                animation = animation?.let {
+                    AnimationSpec(
+                        type = it.optString("type", "frame_sequence"),
+                        fps = it.optDouble("fps", 12.0).toFloat(),
+                        loop = it.optBoolean("loop", true)
+                    )
+                }
+            )
+        }
+
         fun fromJson(json: String): DepthScene {
             val root = JSONObject(json)
             val canvasJson = root.getJSONObject("canvas")
@@ -17,25 +45,15 @@ data class DepthScene(
             val layerArray = root.getJSONArray("layers")
             val layers = buildList {
                 for (i in 0 until layerArray.length()) {
-                    val item = layerArray.getJSONObject(i)
-                    val parallax = item.optJSONObject("parallax") ?: JSONObject()
-                    val placement = item.optJSONObject("placement") ?: JSONObject()
-                    add(
-                        LayerSpec(
-                            id = item.getString("id"),
-                            asset = item.getString("asset"),
-                            z = item.optDouble("z", 0.5).toFloat(),
-                            parallaxX = parallax.optDouble("x", 0.0).toFloat(),
-                            parallaxY = parallax.optDouble("y", 0.0).toFloat(),
-                            scale = item.optDouble("scale", 1.0).toFloat(),
-                            opacity = item.optDouble("opacity", 1.0).toFloat(),
-                            fit = item.optString("fit", item.optString("renderMode", "auto")),
-                            anchorX = placement.optDouble("anchorX", 0.5).toFloat(),
-                            anchorY = placement.optDouble("anchorY", 0.5).toFloat(),
-                            pivotX = placement.optDouble("pivotX", 0.5).toFloat(),
-                            pivotY = placement.optDouble("pivotY", 0.5).toFloat()
-                        )
-                    )
+                    add(parseLayer(layerArray.getJSONObject(i)))
+                }
+            }
+            val animatedLayerArray = root.optJSONArray("animatedLayers")
+            val animatedLayers = buildList {
+                if (animatedLayerArray != null) {
+                    for (i in 0 until animatedLayerArray.length()) {
+                        add(parseLayer(animatedLayerArray.getJSONObject(i)))
+                    }
                 }
             }
             return DepthScene(
@@ -51,7 +69,8 @@ data class DepthScene(
                     smoothing = sensorJson.optDouble("smoothing", 0.12).toFloat(),
                     intensity = sensorJson.optDouble("intensity", 1.0).toFloat()
                 ),
-                layers = layers.sortedBy { it.z }
+                layers = layers.sortedBy { it.z },
+                animatedLayers = animatedLayers.sortedBy { it.z }
             )
         }
     }
@@ -81,5 +100,12 @@ data class LayerSpec(
     val anchorX: Float,
     val anchorY: Float,
     val pivotX: Float,
-    val pivotY: Float
+    val pivotY: Float,
+    val animation: AnimationSpec? = null
+)
+
+data class AnimationSpec(
+    val type: String,
+    val fps: Float,
+    val loop: Boolean
 )

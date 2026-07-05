@@ -1,6 +1,7 @@
 package xyz.abhinava.depthwallpaper.render
 
 import android.content.Context
+import android.graphics.ImageDecoder
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -8,6 +9,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
+import android.os.Build
 import xyz.abhinava.depthwallpaper.data.DepthScene
 import xyz.abhinava.depthwallpaper.data.LayerSpec
 import xyz.abhinava.depthwallpaper.data.SceneRepository
@@ -15,11 +19,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 class DepthSceneRenderer(private val context: Context, private val scene: DepthScene) {
-    private data class LoadedLayer(val bitmap: Bitmap, val visibleBounds: RectF)
+    private data class LoadedLayer(val bitmap: Bitmap?, val drawable: Drawable?, val width: Int, val height: Int, val visibleBounds: RectF)
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val backgroundColor = runCatching { Color.parseColor(scene.canvas.backgroundColor) }.getOrDefault(Color.rgb(7, 10, 24))
     private val bitmaps: Map<String, LoadedLayer> = loadBitmaps()
+    val hasAnimations: Boolean = scene.animatedLayers.isNotEmpty()
 
     fun draw(canvas: Canvas, tiltX: Float, tiltY: Float) {
         val width = canvas.width.toFloat()
@@ -36,17 +41,40 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
 
     private fun loadBitmaps(): Map<String, LoadedLayer> {
         val repo = SceneRepository(context)
-        return scene.layers.mapNotNull { layer ->
+        return (scene.layers + scene.animatedLayers).mapNotNull { layer ->
             if (layer.asset.startsWith("generated://") || layer.asset.startsWith("res://")) return@mapNotNull null
             val file = repo.cachedAssetFile(scene, layer.asset)
             if (!file.exists()) return@mapNotNull null
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
-            layer.id to LoadedLayer(bitmap, alphaBounds(bitmap))
+            val drawable = loadAnimatedDrawableIfSupported(file, layer)
+            if (drawable != null) {
+                layer.id to LoadedLayer(
+                    bitmap = null,
+                    drawable = drawable,
+                    width = drawable.intrinsicWidth.coerceAtLeast(1),
+                    height = drawable.intrinsicHeight.coerceAtLeast(1),
+                    visibleBounds = RectF(0f, 0f, drawable.intrinsicWidth.coerceAtLeast(1).toFloat(), drawable.intrinsicHeight.coerceAtLeast(1).toFloat())
+                )
+            } else {
+                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
+                layer.id to LoadedLayer(bitmap, null, bitmap.width, bitmap.height, alphaBounds(bitmap))
+            }
         }.toMap()
     }
 
+    private fun loadAnimatedDrawableIfSupported(file: java.io.File, layer: LayerSpec): Drawable? {
+        if (layer.animation == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        return runCatching {
+            val drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(file))
+            if (drawable is AnimatedImageDrawable) {
+                drawable.repeatCount = if (layer.animation.loop) AnimatedImageDrawable.REPEAT_INFINITE else 0
+                drawable.start()
+                drawable
+            } else null
+        }.getOrNull()
+    }
+
     private fun drawBitmapLayers(canvas: Canvas, width: Float, height: Float, tiltX: Float, tiltY: Float) {
-        for (layer in scene.layers) {
+        for (layer in (scene.layers + scene.animatedLayers).sortedBy { it.z }) {
             val loaded = bitmaps[layer.id] ?: continue
             val bitmap = loaded.bitmap
             val fit = resolvedFit(layer)
@@ -60,15 +88,17 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                     RectF(insetX + rawOffsetX, insetY + rawOffsetY, width - insetX + rawOffsetX, height - insetY + rawOffsetY)
                 }
                 else -> {
+                    val sourceWidth = bitmap?.width ?: loaded.width
+                    val sourceHeight = bitmap?.height ?: loaded.height
                     val baseScale = if (fit == "cover") {
-                        max(width / bitmap.width.toFloat(), height / bitmap.height.toFloat())
+                        max(width / sourceWidth.toFloat(), height / sourceHeight.toFloat())
                     } else {
-                        min(width / bitmap.width.toFloat(), height / bitmap.height.toFloat())
+                        min(width / sourceWidth.toFloat(), height / sourceHeight.toFloat())
                     }
                     val renderScale = baseScale * layer.scale
-                    val renderedWidth = bitmap.width * renderScale
-                    val renderedHeight = bitmap.height * renderScale
-                    val bounds = if (fit == "cover") RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()) else loaded.visibleBounds
+                    val renderedWidth = sourceWidth * renderScale
+                    val renderedHeight = sourceHeight * renderScale
+                    val bounds = if (fit == "cover") RectF(0f, 0f, sourceWidth.toFloat(), sourceHeight.toFloat()) else loaded.visibleBounds
                     val visibleLeft = bounds.left * renderScale
                     val visibleTop = bounds.top * renderScale
                     val visibleWidth = bounds.width() * renderScale
@@ -81,7 +111,14 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                 }
             }
             paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
-            canvas.drawBitmap(bitmap, null, dst, paint)
+            if (bitmap != null) {
+                canvas.drawBitmap(bitmap, null, dst, paint)
+            } else {
+                loaded.drawable?.alpha = paint.alpha
+                loaded.drawable?.bounds = android.graphics.Rect(dst.left.toInt(), dst.top.toInt(), dst.right.toInt(), dst.bottom.toInt())
+                loaded.drawable?.draw(canvas)
+                loaded.drawable?.alpha = 255
+            }
             paint.alpha = 255
         }
     }

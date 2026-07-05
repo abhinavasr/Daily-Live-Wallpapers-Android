@@ -42,7 +42,7 @@ class SceneRepository(private val context: Context) {
         val endpoint = absoluteUrl(sceneUrlOrPath)
         val json = httpGetText(endpoint)
         val scene = DepthScene.fromJson(json)
-        val downloadableLayers = scene.layers.filter { layer ->
+        val downloadableLayers = (scene.layers + scene.animatedLayers).filter { layer ->
             val asset = layer.asset
             !asset.startsWith("generated://") && !asset.startsWith("res://")
         }
