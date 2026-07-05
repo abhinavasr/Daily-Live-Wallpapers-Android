@@ -1,8 +1,6 @@
 package xyz.abhinava.depthwallpaper.data
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import org.json.JSONArray
 import org.json.JSONObject
 import xyz.abhinava.depthwallpaper.BuildConfig
@@ -144,22 +142,7 @@ class SceneRepository(private val context: Context) {
         )
     }
 
-    fun fetchBitmap(pathOrUrl: String): Bitmap? {
-        return runCatching {
-            val conn = (URL(absoluteUrl(pathOrUrl)).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 12000
-            }
-            try {
-                if (conn.responseCode !in 200..299) null else BitmapFactory.decodeStream(conn.inputStream)
-            } finally {
-                conn.disconnect()
-            }
-        }.getOrNull()
-    }
-
-    private fun absoluteUrl(pathOrUrl: String): String {
+    fun absoluteUrl(pathOrUrl: String): String {
         if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl
         val api = BuildConfig.API_BASE_URL.trimEnd('/')
         val origin = api.removeSuffix("/agent")

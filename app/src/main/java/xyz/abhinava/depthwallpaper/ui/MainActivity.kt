@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import coil.load
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -219,9 +220,9 @@ class MainActivity : Activity() {
         card.addView(meta)
         card.addView(hint)
 
-        scope.launch {
-            val bitmap = withContext(Dispatchers.IO) { repository.fetchBitmap(pack.previewUrl) }
-            if (bitmap != null) image.setImageBitmap(bitmap)
+        image.load(repository.absoluteUrl(pack.previewUrl)) {
+            crossfade(true)
+            allowHardware(false)
         }
         return card
     }
