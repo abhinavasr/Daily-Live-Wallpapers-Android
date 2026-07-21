@@ -18,7 +18,7 @@ plugins {
 
 android {
     namespace = "xyz.abhinava.depthwallpaper"
-    compileSdk = 35
+    compileSdk = 36
 
     buildFeatures {
         buildConfig = true
@@ -27,9 +27,9 @@ android {
     defaultConfig {
         applicationId = "xyz.abhinava.depthwallpaper"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        targetSdk = 36
+        versionCode = 5
+        versionName = "0.1.4"
         buildConfigField("String", "API_BASE_URL", "\"https://ai.abhinava.xyz/agent\"")
     }
 
