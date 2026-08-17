@@ -296,6 +296,7 @@ class MainActivity : Activity() {
             }
             isDownloading = false
             result.onSuccess { scene ->
+                repository.markScenePending(scene)
                 hideProgress("Downloaded ${scene.title}")
                 openWallpaperPicker()
             }.onFailure { error ->

@@ -21,7 +21,7 @@ class DepthWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             try {
-                val scene = SceneRepository(this@DepthWallpaperService).loadCachedOrBundled()
+                val scene = SceneRepository(this@DepthWallpaperService).loadSceneForWallpaper(isPreview)
                 renderer = DepthSceneRenderer(this@DepthWallpaperService, scene)
                 motion = MotionController(
                     context = this@DepthWallpaperService,

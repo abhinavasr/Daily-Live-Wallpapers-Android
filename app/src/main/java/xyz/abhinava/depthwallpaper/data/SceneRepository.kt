@@ -19,9 +19,35 @@ class SceneRepository(private val context: Context) {
     }
 
     fun loadCachedOrBundled(): DepthScene {
+        val activeId = prefs.getString(KEY_ACTIVE_SCENE_ID, null)
+        if (!activeId.isNullOrBlank()) {
+            loadStoredScene(activeId)?.let { return it }
+        }
+
+        // Backwards compatibility for users who installed the earlier build where the download
+        // cache doubled as the active wallpaper cache.
         val cached = prefs.getString(KEY_SCENE_JSON, null)
         if (!cached.isNullOrBlank()) runCatching { return DepthScene.fromJson(cached) }
         return loadBundledSample()
+    }
+
+    fun loadSceneForWallpaper(isPreview: Boolean): DepthScene {
+        if (isPreview) {
+            val pendingId = prefs.getString(KEY_PENDING_SCENE_ID, null)
+            if (!pendingId.isNullOrBlank()) {
+                loadStoredScene(pendingId)?.let { return it }
+            }
+        } else {
+            val pendingId = prefs.getString(KEY_PENDING_SCENE_ID, null)
+            if (!pendingId.isNullOrBlank()) {
+                loadStoredScene(pendingId)?.let { scene ->
+                    markSceneActive(scene)
+                    clearPendingScene()
+                    return scene
+                }
+            }
+        }
+        return loadCachedOrBundled()
     }
 
     fun cachedSceneTitle(): String? = prefs.getString(KEY_SCENE_TITLE, null)
@@ -58,7 +84,11 @@ class SceneRepository(private val context: Context) {
             val asset = layer.asset
             val file = cachedAssetFile(scene, asset)
             val assetUrl = resolveAssetUrl(endpoint, asset)
-            val result = runCatching { httpDownload(assetUrl, file) }
+            val result = runCatching {
+                if (!file.exists() || file.length() <= 0L) {
+                    httpDownload(assetUrl, file)
+                }
+            }
             if (result.isFailure && firstFailure == null) firstFailure = result.exceptionOrNull()
             completed += 1
             onProgress?.invoke(completed, total)
@@ -68,13 +98,53 @@ class SceneRepository(private val context: Context) {
         // broken while the UI claims success. Keep the previously cached/bundled wallpaper intact.
         firstFailure?.let { throw IllegalStateException("Could not download wallpaper assets. Check your connection and try again.", it) }
 
+        storeSceneJson(scene, json)
+        return scene
+    }
+
+    fun markScenePending(scene: DepthScene) {
         prefs.edit()
-            .putString(KEY_SCENE_JSON, json)
-            .putString(KEY_SCENE_TITLE, scene.title)
+            .putString(KEY_PENDING_SCENE_ID, scene.id)
+            .putString(KEY_PENDING_SCENE_TITLE, scene.title)
+            .putLong(KEY_PENDING_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun markSceneActive(scene: DepthScene) {
+        val json = sceneJsonFile(scene.id).takeIf { it.exists() }?.readText()
+        prefs.edit()
+            .putString(KEY_ACTIVE_SCENE_ID, scene.id)
             .putString(KEY_SCENE_ID, scene.id)
+            .putString(KEY_SCENE_TITLE, scene.title)
+            .apply {
+                if (!json.isNullOrBlank()) putString(KEY_SCENE_JSON, json)
+            }
             .putLong(KEY_FETCHED_AT, System.currentTimeMillis())
             .apply()
-        return scene
+    }
+
+    private fun clearPendingScene() {
+        prefs.edit()
+            .remove(KEY_PENDING_SCENE_ID)
+            .remove(KEY_PENDING_SCENE_TITLE)
+            .remove(KEY_PENDING_AT)
+            .apply()
+    }
+
+    private fun loadStoredScene(sceneId: String): DepthScene? {
+        val file = sceneJsonFile(sceneId)
+        if (!file.exists()) return null
+        return runCatching { DepthScene.fromJson(file.readText()) }.getOrNull()
+    }
+
+    private fun storeSceneJson(scene: DepthScene, json: String) {
+        val file = sceneJsonFile(scene.id)
+        file.parentFile?.mkdirs()
+        file.writeText(json)
+    }
+
+    private fun sceneJsonFile(sceneId: String): File {
+        return File(context.filesDir, "wallpapers/$sceneId/scene.json")
     }
 
     fun loadCachedGallery(): List<WallpaperPack> {
@@ -193,5 +263,9 @@ class SceneRepository(private val context: Context) {
         private const val KEY_SCENE_ID = "scene_id"
         private const val KEY_FETCHED_AT = "fetched_at"
         private const val KEY_GALLERY_JSON = "gallery_json"
+        private const val KEY_ACTIVE_SCENE_ID = "active_scene_id"
+        private const val KEY_PENDING_SCENE_ID = "pending_scene_id"
+        private const val KEY_PENDING_SCENE_TITLE = "pending_scene_title"
+        private const val KEY_PENDING_AT = "pending_at"
     }
 }
