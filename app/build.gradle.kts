@@ -28,8 +28,8 @@ android {
         applicationId = "xyz.abhinava.depthwallpaper"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.1.7"
+        versionCode = 9
+        versionName = "0.1.8"
         buildConfigField("String", "API_BASE_URL", "\"https://ai.abhinava.xyz/agent\"")
     }
 
@@ -47,8 +47,12 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 

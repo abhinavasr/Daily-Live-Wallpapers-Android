@@ -2,19 +2,26 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.1.7`
-- Version code: `8`
+- Version name: `0.1.8`
+- Version code: `9`
 - Application ID: `xyz.abhinava.depthwallpaper`
+- Target SDK: `36` / Android 16
+- Optimization: R8 enabled (`minifyReleaseWithR8`) and release resource shrinking enabled
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.7-v8-release.aab`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.8-v9-release.aab`
 - Copied artifacts:
-  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.7-v8-release.aab`
-  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.7-v8-release.aab`
-- SHA-256: `5a7cbb27ed5717bfe6e8deea94fa3fac0e3d61e983abdf018dec3d754ab5d8d8`
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.8-v9-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.8-v9-release.aab`
+- SHA-256: `9d637d872b902f85e5fd5ccc45eb07472ed50d8e754f42d5afdce628b65eb70d`
+- Size: `804,980` bytes
 
 ## Release notes
 
-- Brings Android gallery flow closer to the iOS app:
+- Fixes Google Play readiness feedback:
+  - Confirms release manifest targets API 36 / Android 16.
+  - Enables R8 optimization for release builds.
+  - Enables release resource shrinking.
+- Keeps the Android/iOS parity work from `0.1.7`:
   - Featured, Browse, and Favourites sections in one screen.
   - Category rail backed by server `/wallpaper-api/pack-categories`.
   - Server-provided `category` on packs is parsed and used for filtering.
