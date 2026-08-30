@@ -176,7 +176,9 @@ class SceneRepository(private val context: Context) {
                         previewUrl = item.optString("previewUrl"),
                         sceneUrl = item.optString("sceneUrl"),
                         viewCount = item.optInt("viewCount", item.optInt("views", 0)),
-                        likeCount = item.optInt("likeCount", item.optInt("likes", 0))
+                        likeCount = item.optInt("likeCount", item.optInt("likes", 0)),
+                        viewUserCount = item.optInt("viewUserCount", 0),
+                        likeUserCount = item.optInt("likeUserCount", 0)
                     )
                 )
             }
@@ -196,6 +198,7 @@ class SceneRepository(private val context: Context) {
             put("id", p.id); put("code", p.code); put("title", p.title); put("source", p.source)
             put("publishedAt", p.publishedAt ?: ""); put("previewUrl", p.previewUrl); put("sceneUrl", p.sceneUrl)
             put("viewCount", p.viewCount); put("likeCount", p.likeCount)
+            put("viewUserCount", p.viewUserCount); put("likeUserCount", p.likeUserCount)
         })
         return arr.toString()
     }
@@ -213,16 +216,33 @@ class SceneRepository(private val context: Context) {
             previewUrl = item.optString("previewUrl"),
             sceneUrl = item.optString("sceneUrl"),
             viewCount = item.optInt("viewCount", item.optInt("views", 0)),
-            likeCount = item.optInt("likeCount", item.optInt("likes", 0))
+            likeCount = item.optInt("likeCount", item.optInt("likes", 0)),
+            viewUserCount = item.optInt("viewUserCount", 0),
+            likeUserCount = item.optInt("likeUserCount", 0)
         )
     }
 
     fun recordPackView(packId: String) {
-        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/view", "{}") }
+        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/view", statPayload()) }
     }
 
     fun likePack(packId: String) {
-        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/like", "{}") }
+        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/like", statPayload(liked = true)) }
+    }
+
+    private fun statPayload(liked: Boolean? = null): String {
+        return JSONObject().apply {
+            put("installationId", installationId())
+            if (liked != null) put("liked", liked)
+        }.toString()
+    }
+
+    private fun installationId(): String {
+        val existing = prefs.getString(KEY_INSTALLATION_ID, null)
+        if (!existing.isNullOrBlank()) return existing
+        val fresh = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString(KEY_INSTALLATION_ID, fresh).apply()
+        return fresh
     }
 
     fun absoluteUrl(pathOrUrl: String): String {
@@ -301,5 +321,6 @@ class SceneRepository(private val context: Context) {
         private const val KEY_PENDING_SCENE_ID = "pending_scene_id"
         private const val KEY_PENDING_SCENE_TITLE = "pending_scene_title"
         private const val KEY_PENDING_AT = "pending_at"
+        private const val KEY_INSTALLATION_ID = "installation_id"
     }
 }

@@ -210,6 +210,11 @@ class MainActivity : Activity() {
             textSize = 12f
             setPadding(0, 3, 0, 8)
         }
+        val statDetail = TextView(this).apply {
+            text = "${pack.viewUserCount} viewers · ${pack.likeUserCount} liking users"
+            textSize = 11f
+            setPadding(0, 0, 0, 6)
+        }
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -224,6 +229,7 @@ class MainActivity : Activity() {
                     withContext(Dispatchers.Main) {
                         text = "♥ Liked"
                         meta.text = "Free · Code: ${pack.code} · ${pack.viewCount} views · ${pack.likeCount + 1} likes"
+                        statDetail.text = "${pack.viewUserCount} viewers · ${pack.likeUserCount + 1} liking users"
                     }
                 }
             }
@@ -237,6 +243,7 @@ class MainActivity : Activity() {
         card.addView(image)
         card.addView(title)
         card.addView(meta)
+        card.addView(statDetail)
         card.addView(actions)
         card.addView(hint)
 

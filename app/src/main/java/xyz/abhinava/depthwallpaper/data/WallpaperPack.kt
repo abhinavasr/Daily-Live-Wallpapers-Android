@@ -9,5 +9,7 @@ data class WallpaperPack(
     val previewUrl: String,
     val sceneUrl: String,
     val viewCount: Int = 0,
-    val likeCount: Int = 0
+    val likeCount: Int = 0,
+    val viewUserCount: Int = 0,
+    val likeUserCount: Int = 0
 )
