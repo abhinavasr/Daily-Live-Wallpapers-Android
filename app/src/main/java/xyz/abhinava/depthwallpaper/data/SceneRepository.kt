@@ -171,6 +171,7 @@ class SceneRepository(private val context: Context) {
                         id = item.optString("id"),
                         code = item.optString("code", item.optString("id")),
                         title = item.optString("title", item.optString("id")),
+                        category = item.optString("category", "other").ifBlank { "other" },
                         source = item.optString("source", "unknown"),
                         publishedAt = item.optString("publishedAt").ifBlank { null },
                         previewUrl = item.optString("previewUrl"),
@@ -196,6 +197,7 @@ class SceneRepository(private val context: Context) {
         val arr = JSONArray()
         for (p in packs) arr.put(JSONObject().apply {
             put("id", p.id); put("code", p.code); put("title", p.title); put("source", p.source)
+            put("category", p.category)
             put("publishedAt", p.publishedAt ?: ""); put("previewUrl", p.previewUrl); put("sceneUrl", p.sceneUrl)
             put("viewCount", p.viewCount); put("likeCount", p.likeCount)
             put("viewUserCount", p.viewUserCount); put("likeUserCount", p.likeUserCount)
@@ -211,6 +213,7 @@ class SceneRepository(private val context: Context) {
             id = item.optString("id"),
             code = item.optString("code", item.optString("id")),
             title = item.optString("title", item.optString("id")),
+            category = item.optString("category", "other").ifBlank { "other" },
             source = item.optString("source", "unknown"),
             publishedAt = item.optString("publishedAt").ifBlank { null },
             previewUrl = item.optString("previewUrl"),
@@ -220,6 +223,33 @@ class SceneRepository(private val context: Context) {
             viewUserCount = item.optInt("viewUserCount", 0),
             likeUserCount = item.optInt("likeUserCount", 0)
         )
+    }
+
+    fun fetchPackCategories(): List<WallpaperCategory> {
+        val json = httpGetText("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/pack-categories")
+        val arr = JSONArray(json)
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val slug = item.optString("slug")
+                if (slug.isNotBlank()) {
+                    add(WallpaperCategory(slug, item.optString("title", WallpaperCategory.titleFor(slug)), item.optInt("count", 0)))
+                }
+            }
+        }
+    }
+
+    fun loadFavoriteIds(): Set<String> {
+        return prefs.getStringSet(KEY_FAVORITES, emptySet())?.toSet().orEmpty()
+    }
+
+    fun isFavorite(packId: String): Boolean = loadFavoriteIds().contains(packId)
+
+    fun setFavorite(packId: String, liked: Boolean) {
+        val next = loadFavoriteIds().toMutableSet()
+        if (liked) next.add(packId) else next.remove(packId)
+        prefs.edit().putStringSet(KEY_FAVORITES, next).apply()
+        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/like", statPayload(liked = liked)) }
     }
 
     fun recordPackView(packId: String) {
@@ -322,5 +352,6 @@ class SceneRepository(private val context: Context) {
         private const val KEY_PENDING_SCENE_TITLE = "pending_scene_title"
         private const val KEY_PENDING_AT = "pending_at"
         private const val KEY_INSTALLATION_ID = "installation_id"
+        private const val KEY_FAVORITES = "favorites"
     }
 }

@@ -4,6 +4,7 @@ data class WallpaperPack(
     val id: String,
     val code: String,
     val title: String,
+    val category: String = "other",
     val source: String,
     val publishedAt: String?,
     val previewUrl: String,

@@ -6,9 +6,11 @@ import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
-import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
@@ -19,6 +21,7 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -32,13 +35,19 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.abhinava.depthwallpaper.data.SceneRepository
+import xyz.abhinava.depthwallpaper.data.WallpaperCategory
 import xyz.abhinava.depthwallpaper.data.WallpaperPack
 import xyz.abhinava.depthwallpaper.wallpaper.DepthWallpaperService
+import java.time.Instant
 
 class MainActivity : Activity() {
+    private enum class Section { FEATURED, BROWSE, FAVORITES }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
+    private lateinit var categoryRow: LinearLayout
+    private lateinit var searchInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var content: LinearLayout
@@ -46,6 +55,16 @@ class MainActivity : Activity() {
     private lateinit var overlayStatus: TextView
     private lateinit var overlayProgress: ProgressBar
     private lateinit var repository: SceneRepository
+
+    private var allPacks: List<WallpaperPack> = emptyList()
+    private var categories: List<WallpaperCategory> = WallpaperCategory.fallback
+    private var favoriteIds: Set<String> = emptySet()
+    private var browseOrder: List<String> = emptyList()
+    private var highlightedIds: List<String> = emptyList()
+    private var currentSection = Section.FEATURED
+    private var currentCategory: String? = null
+    private var isSearchVisible = false
+    private var searchQuery = ""
     private var isRefreshing = false
     private var isDownloading = false
     private var pullStartY = 0f
@@ -53,12 +72,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Daily Live Wallpapers"
-        actionBar?.subtitle = "Free wallpapers today"
+        actionBar?.subtitle = "Featured"
         repository = SceneRepository(this)
+        favoriteIds = repository.loadFavoriteIds()
 
-        scroll = ScrollView(this).apply {
-            overScrollMode = View.OVER_SCROLL_ALWAYS
-        }
+        scroll = ScrollView(this).apply { overScrollMode = View.OVER_SCROLL_ALWAYS }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(88), dp(18), dp(28))
@@ -73,8 +91,28 @@ class MainActivity : Activity() {
             isIndeterminate = true
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply {
-                setMargins(0, 0, 0, dp(16))
+                setMargins(0, 0, 0, dp(12))
             }
+        }
+        searchInput = EditText(this).apply {
+            hint = "Search title or code"
+            setSingleLine(true)
+            visibility = View.GONE
+            textSize = 16f
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = roundedRect(0xFFF6F1FA.toInt(), 0xFFCAC4D0.toInt(), dp(14), 1)
+            setOnEditorActionListener { _, _, _ -> applySearch(text?.toString().orEmpty()); true }
+            setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) applySearch(text?.toString().orEmpty()) }
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { applySearch(s?.toString().orEmpty()) }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        categoryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(12))
         }
         galleryContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -83,33 +121,49 @@ class MainActivity : Activity() {
 
         content.addView(status)
         content.addView(progress)
+        content.addView(searchInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, dp(12))
+        })
+        content.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(categoryRow)
+        })
         content.addView(galleryContainer)
         scroll.addView(content)
         loadingOverlay = createLoadingOverlay()
-        val root = FrameLayout(this).apply {
+        setContentView(FrameLayout(this).apply {
             addView(scroll)
             addView(loadingOverlay)
-        }
-        setContentView(root)
+        })
         applyInsets()
         installPullToRefresh()
 
         val cached = repository.loadCachedGallery()
         if (cached.isNotEmpty()) {
-            hideProgress("Pull down to refresh · ${cached.size} wallpapers")
-            renderGallery(cached)
+            allPacks = cached
+            rebuildOrders()
+            hideProgress("Pull down to refresh")
+            renderCurrentSection()
         }
         refreshGallery(showLoading = cached.isEmpty())
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, MENU_CODE, 0, "Enter wallpaper code").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-        menu.add(0, MENU_REFRESH, 1, "Refresh").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_FEATURED, 0, "Featured").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_BROWSE, 1, "Browse").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_FAVORITES, 2, "Favourites").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_SEARCH, 3, "Search").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_CODE, 4, "Enter wallpaper code").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_REFRESH, 5, "Refresh").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            MENU_FEATURED -> { switchSection(Section.FEATURED); true }
+            MENU_BROWSE -> { switchSection(Section.BROWSE); true }
+            MENU_FAVORITES -> { switchSection(Section.FAVORITES); true }
+            MENU_SEARCH -> { toggleSearch(); true }
             MENU_CODE -> { showCodeDialog(); true }
             MENU_REFRESH -> { refreshGallery(showLoading = true); true }
             else -> super.onOptionsItemSelected(item)
@@ -124,7 +178,6 @@ class MainActivity : Activity() {
     private fun applyInsets() {
         scroll.setOnApplyWindowInsetsListener { _, insets ->
             val system = insets.getInsets(WindowInsets.Type.systemBars())
-            // Extra top padding keeps the first gallery card clear of the native action/status bars.
             content.setPadding(dp(18), dp(88), dp(18), dp(28) + system.bottom)
             insets
         }
@@ -154,37 +207,120 @@ class MainActivity : Activity() {
         isRefreshing = true
         if (showLoading) showProgress("Refreshing gallery…")
         scope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { repository.fetchGallery() } }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val packs = repository.fetchGallery()
+                    val taxonomy = runCatching { repository.fetchPackCategories() }.getOrElse { deriveCategories(packs) }
+                    packs to taxonomy
+                }
+            }
             isRefreshing = false
-            result.onSuccess { packs ->
-                hideProgress("Pull down to refresh · ${packs.size} wallpapers")
-                renderGallery(packs)
+            result.onSuccess { (packs, taxonomy) ->
+                allPacks = packs
+                categories = taxonomy.ifEmpty { deriveCategories(packs) }
+                favoriteIds = repository.loadFavoriteIds()
+                rebuildOrders()
+                hideProgress("Pull down to refresh")
+                renderCurrentSection()
             }.onFailure { error ->
                 val cached = repository.loadCachedGallery()
-                if (cached.isNotEmpty()) renderGallery(cached)
+                if (cached.isNotEmpty()) {
+                    allPacks = cached
+                    categories = deriveCategories(cached)
+                    rebuildOrders()
+                    renderCurrentSection()
+                }
                 hideProgress(friendlyFailure("Refresh failed. Showing saved gallery.", error))
             }
         }
     }
 
-    private fun renderGallery(packs: List<WallpaperPack>) {
+    private fun switchSection(section: Section, category: String? = null) {
+        currentSection = section
+        currentCategory = category
+        if (section != Section.BROWSE) currentCategory = null
+        rebuildOrders()
+        renderCurrentSection()
+    }
+
+    private fun toggleSearch() {
+        isSearchVisible = !isSearchVisible
+        searchInput.visibility = if (isSearchVisible) View.VISIBLE else View.GONE
+        if (isSearchVisible) {
+            searchInput.requestFocus()
+        } else {
+            searchInput.setText("")
+            applySearch("")
+        }
+    }
+
+    private fun applySearch(query: String) {
+        searchQuery = query.trim()
+        renderCurrentSection()
+    }
+
+    private fun rebuildOrders() {
+        browseOrder = allPacks.map { it.id }
+        highlightedIds = allPacks
+            .sortedWith(compareByDescending<WallpaperPack> { it.likeCount }
+                .thenByDescending { it.viewCount }
+                .thenByDescending { sortTime(it) })
+            .take(HIGHLIGHT_COUNT)
+            .map { it.id }
+    }
+
+    private fun renderCurrentSection() {
+        actionBar?.subtitle = when (currentSection) {
+            Section.FEATURED -> "Featured"
+            Section.BROWSE -> currentCategory?.let { WallpaperCategory.titleFor(it) } ?: "Browse"
+            Section.FAVORITES -> "Favourites"
+        }
+        renderCategoryRail()
+        val ordered = orderedPacksForCurrentSection()
+        val filtered = ordered.filter { matchesSearch(it) }
         galleryContainer.removeAllViews()
-        if (packs.isEmpty()) {
-            galleryContainer.addView(TextView(this).apply {
-                text = "No wallpapers yet. Pull down to refresh."
-                textSize = 16f
-                gravity = Gravity.CENTER
-                setPadding(0, 80, 0, 0)
-            })
+        if (filtered.isEmpty()) {
+            galleryContainer.addView(emptyState())
+            if (searchQuery.isNotBlank()) galleryContainer.addView(codeLookupButton(searchQuery))
             return
         }
-        for (pack in packs) galleryContainer.addView(galleryItem(pack))
+        for (pack in filtered) galleryContainer.addView(galleryItem(pack))
+    }
+
+    private fun renderCategoryRail() {
+        categoryRow.removeAllViews()
+        categoryRow.addView(sectionChip("Featured", currentSection == Section.FEATURED) { switchSection(Section.FEATURED) })
+        categoryRow.addView(sectionChip("Browse", currentSection == Section.BROWSE && currentCategory == null) { switchSection(Section.BROWSE) })
+        categoryRow.addView(sectionChip("Favourites", currentSection == Section.FAVORITES) { switchSection(Section.FAVORITES) })
+        if (currentSection == Section.BROWSE) {
+            categories.forEach { category ->
+                categoryRow.addView(sectionChip(category.title, currentCategory == category.slug) { switchSection(Section.BROWSE, category.slug) })
+            }
+        }
+    }
+
+    private fun orderedPacksForCurrentSection(): List<WallpaperPack> {
+        val byId = allPacks.associateBy { it.id }
+        val orderedIds = when (currentSection) {
+            Section.FEATURED -> highlightedIds
+            Section.BROWSE -> browseOrder
+            Section.FAVORITES -> browseOrder.filter { favoriteIds.contains(it) }
+        }
+        return orderedIds.mapNotNull { byId[it] }
+            .filter { currentSection != Section.BROWSE || currentCategory == null || it.category == currentCategory }
+    }
+
+    private fun matchesSearch(pack: WallpaperPack): Boolean {
+        if (searchQuery.isBlank()) return true
+        val q = searchQuery.lowercase()
+        return pack.title.lowercase().contains(q) || pack.code.lowercase().contains(q)
     }
 
     private fun galleryItem(pack: WallpaperPack): LinearLayout {
+        val isFav = favoriteIds.contains(pack.id)
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, 34)
+            setPadding(0, 0, 0, dp(22))
             isClickable = true
             isFocusable = true
             foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
@@ -193,58 +329,50 @@ class MainActivity : Activity() {
             setOnClickListener { downloadPackAndOpenSetter(pack) }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
+        val imageFrame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(520))
+            background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(20), 0)
+        }
         val image = ImageView(this).apply {
             adjustViewBounds = false
             scaleType = ImageView.ScaleType.CENTER_CROP
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 680)
-            setBackgroundColor(0xFFEFEAF7.toInt())
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        val title = TextView(this).apply {
+        val titleOverlay = TextView(this).apply {
             text = pack.title
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 12, 0, 0)
-        }
-        val meta = TextView(this).apply {
-            text = "Free · Code: ${pack.code} · ${pack.viewCount} views · ${pack.likeCount} likes"
-            textSize = 12f
-            setPadding(0, 3, 0, 8)
-        }
-        val statDetail = TextView(this).apply {
-            text = "${pack.viewUserCount} viewers · ${pack.likeUserCount} liking users"
-            textSize = 11f
-            setPadding(0, 0, 0, 6)
-        }
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 6)
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(dp(14), dp(20), dp(14), dp(12))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0xCC000000.toInt()))
         }
         val likeButton = Button(this).apply {
-            text = "♡ Like"
-            textSize = 12f
+            text = if (isFav) "♥" else "♡"
+            textSize = 18f
             setOnClickListener {
-                scope.launch(Dispatchers.IO) {
-                    repository.likePack(pack.id)
-                    withContext(Dispatchers.Main) {
-                        text = "♥ Liked"
-                        meta.text = "Free · Code: ${pack.code} · ${pack.viewCount} views · ${pack.likeCount + 1} likes"
-                        statDetail.text = "${pack.viewUserCount} viewers · ${pack.likeUserCount + 1} liking users"
-                    }
-                }
+                val liked = !favoriteIds.contains(pack.id)
+                toggleFavorite(pack, liked)
             }
         }
-        actions.addView(likeButton)
-        val hint = TextView(this).apply {
-            text = "Tap to preview and set"
-            textSize = 13f
-            setPadding(0, 0, 0, 2)
+        imageFrame.addView(image)
+        imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(92), Gravity.BOTTOM))
+        imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(58), dp(48), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(12)
+            rightMargin = dp(12)
+        })
+
+        val meta = TextView(this).apply {
+            text = "${WallpaperCategory.titleFor(pack.category)} · ${pack.viewCount} views · ${pack.likeCount} likes"
+            textSize = 12f
+            setPadding(0, dp(9), 0, dp(2))
         }
-        card.addView(image)
-        card.addView(title)
+        val hint = TextView(this).apply {
+            text = "Code: ${pack.code} · Tap image to preview and set"
+            textSize = 12f
+            setPadding(0, 0, 0, dp(2))
+        }
+        card.addView(imageFrame)
         card.addView(meta)
-        card.addView(statDetail)
-        card.addView(actions)
         card.addView(hint)
 
         image.load(repository.absoluteUrl(pack.previewUrl)) {
@@ -254,13 +382,60 @@ class MainActivity : Activity() {
         return card
     }
 
+    private fun toggleFavorite(pack: WallpaperPack, liked: Boolean) {
+        favoriteIds = if (liked) favoriteIds + pack.id else favoriteIds - pack.id
+        allPacks = allPacks.map {
+            if (it.id == pack.id) it.copy(
+                likeCount = (it.likeCount + if (liked) 1 else -1).coerceAtLeast(0),
+                likeUserCount = (it.likeUserCount + if (liked) 1 else -1).coerceAtLeast(0)
+            ) else it
+        }
+        renderCurrentSection()
+        scope.launch(Dispatchers.IO) { repository.setFavorite(pack.id, liked) }
+    }
+
+    private fun emptyState(): TextView {
+        return TextView(this).apply {
+            text = when {
+                searchQuery.isNotBlank() -> "No listed wallpaper matched “$searchQuery”."
+                currentSection == Section.FAVORITES -> "No favourites yet. Tap ♡ on wallpapers you love."
+                else -> "No wallpapers here yet. Pull down to refresh."
+            }
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(80), 0, dp(12))
+        }
+    }
+
+    private fun codeLookupButton(code: String): Button {
+        return Button(this).apply {
+            text = "Try code lookup for “$code”"
+            setOnClickListener { downloadByCode(code) }
+        }
+    }
+
+    private fun sectionChip(label: String, selected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 14f
+            typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            setTextColor(if (selected) 0xFFFFFFFF.toInt() else 0xFF342A45.toInt())
+            setPadding(dp(13), dp(8), dp(13), dp(8))
+            background = roundedRect(if (selected) 0xFF6750A4.toInt() else 0xFFEFE7F7.toInt(), 0xFFCAC4D0.toInt(), dp(999), 1)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+        }
+    }
+
     private fun showCodeDialog() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(18), dp(24), dp(8))
         }
         val helper = TextView(this).apply {
-            text = "Paste your wallpaper code below. All wallpapers are free today."
+            text = "Paste your wallpaper code below. Hidden/code-only wallpapers are supported."
             textSize = 14f
             setPadding(0, 0, 0, dp(14))
         }
@@ -283,9 +458,7 @@ class MainActivity : Activity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val code = input.text?.toString()?.trim().orEmpty()
-                if (code.isBlank()) {
-                    input.error = "Enter a code"
-                } else {
+                if (code.isBlank()) input.error = "Enter a code" else {
                     dialog.dismiss()
                     downloadByCode(code)
                 }
@@ -298,8 +471,13 @@ class MainActivity : Activity() {
         showProgress("Looking up wallpaper code…")
         scope.launch {
             val result = withContext(Dispatchers.IO) { runCatching { repository.fetchPackByCode(code) } }
-            result.onSuccess { pack -> downloadPackAndOpenSetter(pack) }
-                .onFailure { error -> hideProgress(friendlyFailure("Code lookup failed.", error)) }
+            result.onSuccess { pack ->
+                if (allPacks.none { it.id == pack.id }) {
+                    allPacks = listOf(pack) + allPacks
+                    rebuildOrders()
+                }
+                downloadPackAndOpenSetter(pack)
+            }.onFailure { error -> hideProgress(friendlyFailure("Code lookup failed.", error)) }
         }
     }
 
@@ -313,24 +491,31 @@ class MainActivity : Activity() {
                     repository.recordPackView(pack.id)
                     repository.fetchAndCacheScene(pack.sceneUrl) { completed, total ->
                         scope.launch(Dispatchers.Main) {
-                            if (total > 0) {
-                                showProgress("Downloading ${pack.title} · $completed/$total", completed, total)
-                            } else {
-                                showProgress("Downloading ${pack.title}…")
-                            }
+                            if (total > 0) showProgress("Downloading ${pack.title} · $completed/$total", completed, total)
+                            else showProgress("Downloading ${pack.title}…")
                         }
                     }
                 }
             }
             isDownloading = false
             result.onSuccess { scene ->
+                allPacks = allPacks.map { if (it.id == pack.id) it.copy(viewCount = it.viewCount + 1) else it }
                 repository.markScenePending(scene)
                 hideProgress("Downloaded ${scene.title}")
                 openWallpaperPicker()
-            }.onFailure { error ->
-                hideProgress(friendlyFailure("Download failed.", error))
-            }
+            }.onFailure { error -> hideProgress(friendlyFailure("Download failed.", error)) }
         }
+    }
+
+    private fun deriveCategories(packs: List<WallpaperPack>): List<WallpaperCategory> {
+        val counts = packs.groupingBy { it.category }.eachCount()
+        return WallpaperCategory.fallback
+            .mapNotNull { base -> counts[base.slug]?.takeIf { it > 0 }?.let { base.copy(count = it) } }
+            .ifEmpty { counts.map { (slug, count) -> WallpaperCategory(slug, WallpaperCategory.titleFor(slug), count) } }
+    }
+
+    private fun sortTime(pack: WallpaperPack): Long {
+        return pack.publishedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrDefault(0L) } ?: 0L
     }
 
     private fun createLoadingOverlay(): FrameLayout {
@@ -416,12 +601,17 @@ class MainActivity : Activity() {
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = radius.toFloat()
-            setStroke(dp(strokeDp), strokeColor)
+            if (strokeDp > 0) setStroke(dp(strokeDp), strokeColor)
         }
     }
 
     companion object {
-        private const val MENU_CODE = 1
-        private const val MENU_REFRESH = 2
+        private const val HIGHLIGHT_COUNT = 5
+        private const val MENU_FEATURED = 1
+        private const val MENU_BROWSE = 2
+        private const val MENU_FAVORITES = 3
+        private const val MENU_SEARCH = 4
+        private const val MENU_CODE = 5
+        private const val MENU_REFRESH = 6
     }
 }

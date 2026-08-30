@@ -2,12 +2,27 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.1.0`
-- Version code: `1`
+- Version name: `0.1.7`
+- Version code: `8`
 - Application ID: `xyz.abhinava.depthwallpaper`
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Copied artifact: `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper/depth-wallpaper-0.1.0-v1-release.aab`
-- SHA-256: `747defee39491d984fecf6a733e9d0cfd91de0d8e89744d05c19c13bccb2b2b1`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.7-v8-release.aab`
+- Copied artifacts:
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.7-v8-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.7-v8-release.aab`
+- SHA-256: `5a7cbb27ed5717bfe6e8deea94fa3fac0e3d61e983abdf018dec3d754ab5d8d8`
+
+## Release notes
+
+- Brings Android gallery flow closer to the iOS app:
+  - Featured, Browse, and Favourites sections in one screen.
+  - Category rail backed by server `/wallpaper-api/pack-categories`.
+  - Server-provided `category` on packs is parsed and used for filtering.
+  - On-device favourites with stable per-installation like reporting.
+  - Search toggle matches title/code and offers code lookup for hidden/code-only packs.
+  - Featured ranks by likes, then views, then recency.
+  - Display order stays frozen while liking, so cards do not jump under the user's finger.
+- Keeps Android-specific live wallpaper picker/set flow intact.
 
 ## Upload key
 
@@ -23,7 +38,7 @@ Keep the keystore and `release-signing.properties` backed up securely. Losing th
 
 ```bash
 cd /home/abhinava/.openclaw/workspace/side-projects/depth-live-wallpaper/android
-JAVA_HOME=/home/linuxbrew/.linuxbrew/opt/openjdk@21/libexec /home/linuxbrew/.linuxbrew/bin/gradle clean bundleRelease lintVitalRelease --no-daemon
+gradle clean bundleRelease lintVitalRelease
 ```
 
-The project pins Gradle Java home to JDK 21 in `gradle.properties` because Android Gradle lint failed under JDK 25.
+The project pins Gradle Java home to JDK 21 in `gradle.properties` because Android Gradle lint failed under newer JDKs.
