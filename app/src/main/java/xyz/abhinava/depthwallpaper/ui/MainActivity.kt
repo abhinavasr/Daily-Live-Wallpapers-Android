@@ -82,14 +82,15 @@ class MainActivity : Activity() {
         scroll = ScrollView(this).apply { overScrollMode = View.OVER_SCROLL_ALWAYS }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(28), dp(16), dp(28))
+            setPadding(dp(18), dp(22), dp(18), dp(28))
             setBackgroundColor(0xFFF8F6FB.toInt())
         }
         status = TextView(this).apply {
             text = "Loading gallery…"
-            textSize = 14f
+            textSize = 12f
             gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 10)
+            setTextColor(0xFF756B7E.toInt())
+            setPadding(0, 0, 0, dp(8))
         }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = true
@@ -103,8 +104,8 @@ class MainActivity : Activity() {
             setSingleLine(true)
             visibility = View.GONE
             textSize = 16f
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = roundedRect(0xFFF6F1FA.toInt(), 0xFFCAC4D0.toInt(), dp(14), 1)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE4DCE9.toInt(), dp(18), 1)
             setOnEditorActionListener { _, _, _ -> applySearch(text?.toString().orEmpty()); true }
             setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) applySearch(text?.toString().orEmpty()) }
             addTextChangedListener(object : TextWatcher {
@@ -116,7 +117,7 @@ class MainActivity : Activity() {
         categoryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, dp(12), dp(12))
         }
         galleryContainer = GridLayout(this).apply {
             columnCount = 2
@@ -138,6 +139,7 @@ class MainActivity : Activity() {
         scroll.addView(content)
         loadingOverlay = createLoadingOverlay()
         setContentView(FrameLayout(this).apply {
+            setBackgroundColor(0xFFF8F6FB.toInt())
             addView(scroll)
             addView(loadingOverlay)
         })
@@ -184,7 +186,7 @@ class MainActivity : Activity() {
     private fun applyInsets() {
         scroll.setOnApplyWindowInsetsListener { _, insets ->
             val system = insets.getInsets(WindowInsets.Type.systemBars())
-            content.setPadding(dp(16), dp(22) + system.top, dp(16), dp(28) + system.bottom)
+            content.setPadding(dp(18), dp(14) + system.top, dp(18), dp(28) + system.bottom)
             insets
         }
     }
@@ -193,7 +195,7 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(18))
+            setPadding(0, 0, 0, dp(14))
         }
         val spacer = FrameLayout(this)
         val titleView = TextView(this).apply {
@@ -208,24 +210,24 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE7DFEE.toInt(), dp(999), 1)
             elevation = dp(3).toFloat()
-            setPadding(dp(4), dp(3), dp(4), dp(3))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        actions.addView(headerIcon("⌕") { toggleSearch() })
-        actions.addView(headerIcon("⇅") { showSortDialog() })
-        header.addView(spacer, LinearLayout.LayoutParams(0, dp(48), 1f))
+        actions.addView(headerIcon("🔍") { toggleSearch() })
+        actions.addView(headerIcon("↕") { showSortDialog() })
+        header.addView(spacer, LinearLayout.LayoutParams(0, dp(46), 1f))
         header.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
-        header.addView(actions, LinearLayout.LayoutParams(0, dp(48), 1f).apply { gravity = Gravity.END })
+        header.addView(actions, LinearLayout.LayoutParams(0, dp(46), 1f).apply { gravity = Gravity.END })
         return header
     }
 
     private fun headerIcon(label: String, onClick: () -> Unit): TextView {
         return TextView(this).apply {
             text = label
-            textSize = 22f
+            textSize = 17f
             gravity = Gravity.CENTER
             setTextColor(0xFF201A2B.toInt())
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(dp(42), ViewGroup.LayoutParams.MATCH_PARENT)
+            layoutParams = LinearLayout.LayoutParams(dp(38), ViewGroup.LayoutParams.MATCH_PARENT)
         }
     }
 
@@ -354,14 +356,23 @@ class MainActivity : Activity() {
 
     private fun renderCategoryRail() {
         categoryRow.removeAllViews()
-        categoryRow.addView(sectionChip("Featured", currentSection == Section.FEATURED) { switchSection(Section.FEATURED) })
-        categoryRow.addView(sectionChip("Browse", currentSection == Section.BROWSE && currentCategory == null) { switchSection(Section.BROWSE) })
-        categoryRow.addView(sectionChip("Favourites", currentSection == Section.FAVORITES) { switchSection(Section.FAVORITES) })
+        categoryRow.addView(sectionChip("✦ Featured", currentSection == Section.FEATURED) { switchSection(Section.FEATURED) })
+        categoryRow.addView(sectionChip("▦ Browse", currentSection == Section.BROWSE && currentCategory == null) { switchSection(Section.BROWSE) })
+        categoryRow.addView(sectionChip("♥ Favourites", currentSection == Section.FAVORITES) { switchSection(Section.FAVORITES) })
         if (currentSection == Section.BROWSE) {
             categories.forEach { category ->
-                categoryRow.addView(sectionChip(category.title, currentCategory == category.slug) { switchSection(Section.BROWSE, category.slug) })
+                categoryRow.addView(sectionChip("${categoryIcon(category.slug)} ${category.title}", currentCategory == category.slug) { switchSection(Section.BROWSE, category.slug) })
             }
         }
+    }
+
+    private fun categoryIcon(slug: String): String = when (slug) {
+        "anime" -> "⚡"
+        "nature" -> "🌿"
+        "devotional" -> "🛕"
+        "vehicles" -> "🏎"
+        "neon" -> "✦"
+        else -> "•"
     }
 
     private fun orderedPacksForCurrentSection(): List<WallpaperPack> {
@@ -396,14 +407,14 @@ class MainActivity : Activity() {
             layoutParams = GridLayout.LayoutParams().apply {
                 width = cardWidth
                 height = ViewGroup.LayoutParams.WRAP_CONTENT
-                setMargins(dp(5), dp(5), dp(5), dp(13))
+                setMargins(dp(4), dp(4), dp(4), dp(16))
             }
         }
         val imageFrame = FrameLayout(this).apply {
             clipToOutline = true
             elevation = dp(2).toFloat()
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.52f).toInt())
-            background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(20), 0)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.58f).toInt())
+            background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(24), 0)
         }
         val image = ImageView(this).apply {
             adjustViewBounds = false
@@ -413,15 +424,20 @@ class MainActivity : Activity() {
         val titleOverlay = TextView(this).apply {
             text = pack.title
             maxLines = 2
-            textSize = 15f
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFFFFFFF.toInt())
-            setPadding(dp(10), dp(22), dp(48), dp(10))
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0xCC000000.toInt()))
+            setPadding(dp(10), dp(30), dp(52), dp(12))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x66000000, 0xE0000000.toInt()))
         }
         val likeButton = Button(this).apply {
             text = if (isFav) "♥ ${pack.likeCount}" else "♡ ${pack.likeCount}"
             textSize = 12f
+            setTextColor(if (isFav) 0xFFE91E63.toInt() else 0xFF2D2533.toInt())
+            background = roundedRect(0xEFFFFFFF.toInt(), 0x99FFFFFF.toInt(), dp(999), 1)
+            minHeight = 0
+            minWidth = 0
+            setPadding(dp(6), 0, dp(6), 0)
             setOnClickListener {
                 val liked = !favoriteIds.contains(pack.id)
                 toggleFavorite(pack, liked)
@@ -437,12 +453,14 @@ class MainActivity : Activity() {
         val meta = TextView(this).apply {
             text = "${WallpaperCategory.titleFor(pack.category)} · ${pack.viewCount} views"
             textSize = 11f
+            setTextColor(0xFF62596A.toInt())
             setPadding(dp(2), dp(7), dp(2), dp(1))
         }
         val hint = TextView(this).apply {
             text = "Code: ${pack.code}"
             textSize = 10f
             maxLines = 1
+            setTextColor(0xFF8A8190.toInt())
             setPadding(dp(2), 0, dp(2), dp(2))
         }
         card.addView(imageFrame)
@@ -458,8 +476,8 @@ class MainActivity : Activity() {
 
     private fun gridCardWidth(): Int {
         val screen = resources.displayMetrics.widthPixels
-        val horizontalPadding = dp(16) * 2
-        val gap = dp(20)
+        val horizontalPadding = dp(18) * 2
+        val gap = dp(16)
         return ((screen - horizontalPadding - gap) / 2).coerceAtLeast(dp(148))
     }
 
@@ -501,8 +519,9 @@ class MainActivity : Activity() {
             textSize = 14f
             typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             setTextColor(if (selected) 0xFFFFFFFF.toInt() else 0xFF342A45.toInt())
-            setPadding(dp(13), dp(8), dp(13), dp(8))
-            background = roundedRect(if (selected) 0xFF6750A4.toInt() else 0xFFEFE7F7.toInt(), 0xFFCAC4D0.toInt(), dp(999), 1)
+            setPadding(dp(15), dp(10), dp(15), dp(10))
+            background = roundedRect(if (selected) 0xFF7C4DFF.toInt() else 0xFFFFFFFF.toInt(), if (selected) 0xFF7C4DFF.toInt() else 0xFFE6DEEA.toInt(), dp(999), 1)
+            elevation = if (selected) dp(2).toFloat() else 0f
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, dp(8), 0)

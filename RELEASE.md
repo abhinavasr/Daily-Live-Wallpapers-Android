@@ -2,31 +2,31 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.2.0`
-- Version code: `11`
+- Version name: `0.2.1`
+- Version code: `12`
 - Application ID: `xyz.abhinava.depthwallpaper`
 - Target SDK: `36` / Android 16
 - Optimization: R8 enabled (`minifyReleaseWithR8`) and release resource shrinking enabled
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.2.0-v11-release.aab`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.2.1-v12-release.aab`
 - Copied artifacts:
-  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.2.0-v11-release.aab`
-  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.2.0-v11-release.aab`
-- SHA-256: `8a0d52ed3b433e41f5451a8cb4f8a2512604b25bb7444001830779a6f8aa8093`
-- Size: `808,721` bytes
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.2.1-v12-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.2.1-v12-release.aab`
+- SHA-256: `c972ae272d6ca587202000eeccc2bd7642fffb4a9c1e0da4f6ddb88932837080`
+- Size: `809,571` bytes
 - Signing certificate SHA-1: `78:7C:97:61:4F:1D:16:B9:50:BF:01:57:59:A3:C7:A1:10:ED:CD:4F`
 - Signing certificate SHA-256: `84:4B:77:E9:C4:C3:1E:34:C3:5C:4D:F4:3E:E7:BD:F9:89:B9:5F:A7:FB:EC:9B:AA:65:55:31:08:24:EF:46:BE`
 
 ## Release notes
 
 - Updates Android UI/UX to follow the iPhone app direction while keeping Android-native live wallpaper behaviour:
-  - Centered lightweight `Live Wallpapers` header.
-  - Floating rounded search/sort action pill.
+  - Centered lightweight `Live Wallpapers` header with tighter top spacing.
+  - Floating rounded search/sort action pill with cleaner icon sizing.
   - Search field uses “Search name or wallpaper code”.
-  - Horizontal chip rail for Featured, Browse, Favourites, and server categories.
-  - Two-column artwork-first wallpaper grid.
-  - Tall rounded portrait cards with bottom gradient title overlay.
-  - Favourite/like control floats over each card near the artwork edge.
+  - Softer horizontal chip rail for Featured, Browse, Favourites, and server categories, with lightweight category icons.
+  - Two-column artwork-first wallpaper grid with improved gutters.
+  - Taller rounded portrait cards with stronger bottom gradient title overlay for legibility.
+  - Favourite/like control floats over each card near the artwork edge with a translucent pill style.
   - Sort options: Most liked, Newest, A–Z, Z–A.
   - Featured ranking remains likes → views → recency.
   - Favourites remain on-device and report likes with stable per-installation ID.
