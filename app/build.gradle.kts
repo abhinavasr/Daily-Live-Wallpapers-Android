@@ -28,8 +28,8 @@ android {
         applicationId = "xyz.abhinava.depthwallpaper"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.2.1"
+        versionCode = 13
+        versionName = "0.2.2"
         buildConfigField("String", "API_BASE_URL", "\"https://ai.abhinava.xyz/agent\"")
     }
 

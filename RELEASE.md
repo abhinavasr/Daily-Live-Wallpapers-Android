@@ -2,18 +2,18 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.2.1`
-- Version code: `12`
+- Version name: `0.2.2`
+- Version code: `13`
 - Application ID: `xyz.abhinava.depthwallpaper`
 - Target SDK: `36` / Android 16
 - Optimization: R8 enabled (`minifyReleaseWithR8`) and release resource shrinking enabled
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.2.1-v12-release.aab`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.2.2-v13-release.aab`
 - Copied artifacts:
-  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.2.1-v12-release.aab`
-  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.2.1-v12-release.aab`
-- SHA-256: `c972ae272d6ca587202000eeccc2bd7642fffb4a9c1e0da4f6ddb88932837080`
-- Size: `809,571` bytes
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.2.2-v13-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.2.2-v13-release.aab`
+- SHA-256: `f140d495240e37423409e097bbaa77ca7bae88ab5ebe6a1bd1c1629d42bce6a2`
+- Size: `809,582` bytes
 - Signing certificate SHA-1: `78:7C:97:61:4F:1D:16:B9:50:BF:01:57:59:A3:C7:A1:10:ED:CD:4F`
 - Signing certificate SHA-256: `84:4B:77:E9:C4:C3:1E:34:C3:5C:4D:F4:3E:E7:BD:F9:89:B9:5F:A7:FB:EC:9B:AA:65:55:31:08:24:EF:46:BE`
 
