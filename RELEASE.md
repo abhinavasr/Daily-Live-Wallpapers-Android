@@ -2,22 +2,24 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.1.8`
-- Version code: `9`
+- Version name: `0.1.9`
+- Version code: `10`
 - Application ID: `xyz.abhinava.depthwallpaper`
 - Target SDK: `36` / Android 16
 - Optimization: R8 enabled (`minifyReleaseWithR8`) and release resource shrinking enabled
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.8-v9-release.aab`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.9-v10-release.aab`
 - Copied artifacts:
-  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.8-v9-release.aab`
-  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.8-v9-release.aab`
-- SHA-256: `9d637d872b902f85e5fd5ccc45eb07472ed50d8e754f42d5afdce628b65eb70d`
-- Size: `804,980` bytes
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.9-v10-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.9-v10-release.aab`
+- SHA-256: `2e5a4f5a870de1e40cb6822c7edc0548fbd3d1849e7baa98ea61b9414da7c5ae`
+- Size: `804,978` bytes
 
 ## Release notes
 
-- Fixes Google Play readiness feedback:
+- Fresh rebuild after Play signing retry feedback:
+  - New version code/name so Play sees a distinct upload attempt.
+- Keeps Google Play readiness fixes:
   - Confirms release manifest targets API 36 / Android 16.
   - Enables R8 optimization for release builds.
   - Enables release resource shrinking.
