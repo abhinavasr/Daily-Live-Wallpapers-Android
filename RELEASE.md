@@ -2,35 +2,39 @@
 
 ## Current Play upload artifact
 
-- Version name: `0.1.9`
-- Version code: `10`
+- Version name: `0.2.0`
+- Version code: `11`
 - Application ID: `xyz.abhinava.depthwallpaper`
 - Target SDK: `36` / Android 16
 - Optimization: R8 enabled (`minifyReleaseWithR8`) and release resource shrinking enabled
 - Signed AAB: `app/build/outputs/bundle/release/app-release.aab`
-- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.1.9-v10-release.aab`
+- Public artifact: `https://ai.abhinava.xyz/agent/downloads/depth-wallpaper-0.2.0-v11-release.aab`
 - Copied artifacts:
-  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.1.9-v10-release.aab`
-  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.1.9-v10-release.aab`
-- SHA-256: `2e5a4f5a870de1e40cb6822c7edc0548fbd3d1849e7baa98ea61b9414da7c5ae`
-- Size: `804,978` bytes
+  - `/home/abhinava/.openclaw/workspace/managed-nginx/public/downloads/depth-wallpaper-0.2.0-v11-release.aab`
+  - `/home/abhinava/.openclaw/workspace/public-downloads/depth-wallpaper-0.2.0-v11-release.aab`
+- SHA-256: `8a0d52ed3b433e41f5451a8cb4f8a2512604b25bb7444001830779a6f8aa8093`
+- Size: `808,721` bytes
+- Signing certificate SHA-1: `78:7C:97:61:4F:1D:16:B9:50:BF:01:57:59:A3:C7:A1:10:ED:CD:4F`
+- Signing certificate SHA-256: `84:4B:77:E9:C4:C3:1E:34:C3:5C:4D:F4:3E:E7:BD:F9:89:B9:5F:A7:FB:EC:9B:AA:65:55:31:08:24:EF:46:BE`
 
 ## Release notes
 
-- Fresh rebuild after Play signing retry feedback:
-  - New version code/name so Play sees a distinct upload attempt.
+- Updates Android UI/UX to follow the iPhone app direction while keeping Android-native live wallpaper behaviour:
+  - Centered lightweight `Live Wallpapers` header.
+  - Floating rounded search/sort action pill.
+  - Search field uses “Search name or wallpaper code”.
+  - Horizontal chip rail for Featured, Browse, Favourites, and server categories.
+  - Two-column artwork-first wallpaper grid.
+  - Tall rounded portrait cards with bottom gradient title overlay.
+  - Favourite/like control floats over each card near the artwork edge.
+  - Sort options: Most liked, Newest, A–Z, Z–A.
+  - Featured ranking remains likes → views → recency.
+  - Favourites remain on-device and report likes with stable per-installation ID.
+  - Code lookup is still available for hidden/code-only wallpapers.
 - Keeps Google Play readiness fixes:
-  - Confirms release manifest targets API 36 / Android 16.
-  - Enables R8 optimization for release builds.
-  - Enables release resource shrinking.
-- Keeps the Android/iOS parity work from `0.1.7`:
-  - Featured, Browse, and Favourites sections in one screen.
-  - Category rail backed by server `/wallpaper-api/pack-categories`.
-  - Server-provided `category` on packs is parsed and used for filtering.
-  - On-device favourites with stable per-installation like reporting.
-  - Search toggle matches title/code and offers code lookup for hidden/code-only packs.
-  - Featured ranks by likes, then views, then recency.
-  - Display order stays frozen while liking, so cards do not jump under the user's finger.
+  - Release manifest targets API 36 / Android 16.
+  - R8 optimization enabled.
+  - Release resource shrinking enabled.
 - Keeps Android-specific live wallpaper picker/set flow intact.
 
 ## Upload key

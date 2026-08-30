@@ -21,6 +21,7 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -42,13 +43,14 @@ import java.time.Instant
 
 class MainActivity : Activity() {
     private enum class Section { FEATURED, BROWSE, FAVORITES }
+    private enum class SortMode { MOST_LIKED, NEWEST, A_TO_Z, Z_TO_A }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var categoryRow: LinearLayout
     private lateinit var searchInput: EditText
-    private lateinit var galleryContainer: LinearLayout
+    private lateinit var galleryContainer: GridLayout
     private lateinit var scroll: ScrollView
     private lateinit var content: LinearLayout
     private lateinit var loadingOverlay: FrameLayout
@@ -63,6 +65,7 @@ class MainActivity : Activity() {
     private var highlightedIds: List<String> = emptyList()
     private var currentSection = Section.FEATURED
     private var currentCategory: String? = null
+    private var currentSort = SortMode.MOST_LIKED
     private var isSearchVisible = false
     private var searchQuery = ""
     private var isRefreshing = false
@@ -72,14 +75,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Daily Live Wallpapers"
-        actionBar?.subtitle = "Featured"
+        actionBar?.hide()
         repository = SceneRepository(this)
         favoriteIds = repository.loadFavoriteIds()
 
         scroll = ScrollView(this).apply { overScrollMode = View.OVER_SCROLL_ALWAYS }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(88), dp(18), dp(28))
+            setPadding(dp(16), dp(28), dp(16), dp(28))
+            setBackgroundColor(0xFFF8F6FB.toInt())
         }
         status = TextView(this).apply {
             text = "Loading gallery…"
@@ -95,7 +99,7 @@ class MainActivity : Activity() {
             }
         }
         searchInput = EditText(this).apply {
-            hint = "Search title or code"
+            hint = "Search name or wallpaper code"
             setSingleLine(true)
             visibility = View.GONE
             textSize = 16f
@@ -114,11 +118,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(12))
         }
-        galleryContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        galleryContainer = GridLayout(this).apply {
+            columnCount = 2
+            useDefaultMargins = false
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
+        content.addView(createHeader())
         content.addView(status)
         content.addView(progress)
         content.addView(searchInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -178,8 +184,48 @@ class MainActivity : Activity() {
     private fun applyInsets() {
         scroll.setOnApplyWindowInsetsListener { _, insets ->
             val system = insets.getInsets(WindowInsets.Type.systemBars())
-            content.setPadding(dp(18), dp(88), dp(18), dp(28) + system.bottom)
+            content.setPadding(dp(16), dp(22) + system.top, dp(16), dp(28) + system.bottom)
             insets
+        }
+    }
+
+    private fun createHeader(): LinearLayout {
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(18))
+        }
+        val spacer = FrameLayout(this)
+        val titleView = TextView(this).apply {
+            text = "Live Wallpapers"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFF16121D.toInt())
+        }
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE7DFEE.toInt(), dp(999), 1)
+            elevation = dp(3).toFloat()
+            setPadding(dp(4), dp(3), dp(4), dp(3))
+        }
+        actions.addView(headerIcon("⌕") { toggleSearch() })
+        actions.addView(headerIcon("⇅") { showSortDialog() })
+        header.addView(spacer, LinearLayout.LayoutParams(0, dp(48), 1f))
+        header.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
+        header.addView(actions, LinearLayout.LayoutParams(0, dp(48), 1f).apply { gravity = Gravity.END })
+        return header
+    }
+
+    private fun headerIcon(label: String, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(0xFF201A2B.toInt())
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(dp(42), ViewGroup.LayoutParams.MATCH_PARENT)
         }
     }
 
@@ -260,7 +306,7 @@ class MainActivity : Activity() {
     }
 
     private fun rebuildOrders() {
-        browseOrder = allPacks.map { it.id }
+        browseOrder = sortedBrowsePacks(allPacks).map { it.id }
         highlightedIds = allPacks
             .sortedWith(compareByDescending<WallpaperPack> { it.likeCount }
                 .thenByDescending { it.viewCount }
@@ -269,12 +315,16 @@ class MainActivity : Activity() {
             .map { it.id }
     }
 
-    private fun renderCurrentSection() {
-        actionBar?.subtitle = when (currentSection) {
-            Section.FEATURED -> "Featured"
-            Section.BROWSE -> currentCategory?.let { WallpaperCategory.titleFor(it) } ?: "Browse"
-            Section.FAVORITES -> "Favourites"
+    private fun sortedBrowsePacks(packs: List<WallpaperPack>): List<WallpaperPack> {
+        return when (currentSort) {
+            SortMode.MOST_LIKED -> packs.sortedWith(compareByDescending<WallpaperPack> { it.likeCount }.thenByDescending { it.viewCount }.thenByDescending { sortTime(it) })
+            SortMode.NEWEST -> packs.sortedByDescending { sortTime(it) }
+            SortMode.A_TO_Z -> packs.sortedBy { it.title.lowercase() }
+            SortMode.Z_TO_A -> packs.sortedByDescending { it.title.lowercase() }
         }
+    }
+
+    private fun renderCurrentSection() {
         renderCategoryRail()
         val ordered = orderedPacksForCurrentSection()
         val filtered = ordered.filter { matchesSearch(it) }
@@ -285,6 +335,21 @@ class MainActivity : Activity() {
             return
         }
         for (pack in filtered) galleryContainer.addView(galleryItem(pack))
+    }
+
+    private fun showSortDialog() {
+        val labels = arrayOf("Most liked", "Newest", "A–Z", "Z–A")
+        val values = arrayOf(SortMode.MOST_LIKED, SortMode.NEWEST, SortMode.A_TO_Z, SortMode.Z_TO_A)
+        val checked = values.indexOf(currentSort).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Sort wallpapers")
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                currentSort = values[which]
+                rebuildOrders()
+                renderCurrentSection()
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun renderCategoryRail() {
@@ -318,19 +383,26 @@ class MainActivity : Activity() {
 
     private fun galleryItem(pack: WallpaperPack): LinearLayout {
         val isFav = favoriteIds.contains(pack.id)
+        val cardWidth = gridCardWidth()
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(22))
+            setPadding(0, 0, 0, dp(12))
             isClickable = true
             isFocusable = true
             foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
                 val drawable = it.getDrawable(0); it.recycle(); drawable
             }
             setOnClickListener { downloadPackAndOpenSetter(pack) }
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = cardWidth
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                setMargins(dp(5), dp(5), dp(5), dp(13))
+            }
         }
         val imageFrame = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(520))
+            clipToOutline = true
+            elevation = dp(2).toFloat()
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.52f).toInt())
             background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(20), 0)
         }
         val image = ImageView(this).apply {
@@ -340,36 +412,38 @@ class MainActivity : Activity() {
         }
         val titleOverlay = TextView(this).apply {
             text = pack.title
-            textSize = 18f
+            maxLines = 2
+            textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFFFFFFF.toInt())
-            setPadding(dp(14), dp(20), dp(14), dp(12))
+            setPadding(dp(10), dp(22), dp(48), dp(10))
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0xCC000000.toInt()))
         }
         val likeButton = Button(this).apply {
-            text = if (isFav) "♥" else "♡"
-            textSize = 18f
+            text = if (isFav) "♥ ${pack.likeCount}" else "♡ ${pack.likeCount}"
+            textSize = 12f
             setOnClickListener {
                 val liked = !favoriteIds.contains(pack.id)
                 toggleFavorite(pack, liked)
             }
         }
         imageFrame.addView(image)
-        imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(92), Gravity.BOTTOM))
-        imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(58), dp(48), Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(12)
-            rightMargin = dp(12)
+        imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96), Gravity.BOTTOM))
+        imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(72), dp(42), Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = dp(10)
+            rightMargin = dp(8)
         })
 
         val meta = TextView(this).apply {
-            text = "${WallpaperCategory.titleFor(pack.category)} · ${pack.viewCount} views · ${pack.likeCount} likes"
-            textSize = 12f
-            setPadding(0, dp(9), 0, dp(2))
+            text = "${WallpaperCategory.titleFor(pack.category)} · ${pack.viewCount} views"
+            textSize = 11f
+            setPadding(dp(2), dp(7), dp(2), dp(1))
         }
         val hint = TextView(this).apply {
-            text = "Code: ${pack.code} · Tap image to preview and set"
-            textSize = 12f
-            setPadding(0, 0, 0, dp(2))
+            text = "Code: ${pack.code}"
+            textSize = 10f
+            maxLines = 1
+            setPadding(dp(2), 0, dp(2), dp(2))
         }
         card.addView(imageFrame)
         card.addView(meta)
@@ -380,6 +454,13 @@ class MainActivity : Activity() {
             allowHardware(false)
         }
         return card
+    }
+
+    private fun gridCardWidth(): Int {
+        val screen = resources.displayMetrics.widthPixels
+        val horizontalPadding = dp(16) * 2
+        val gap = dp(20)
+        return ((screen - horizontalPadding - gap) / 2).coerceAtLeast(dp(148))
     }
 
     private fun toggleFavorite(pack: WallpaperPack, liked: Boolean) {
