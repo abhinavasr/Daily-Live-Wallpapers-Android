@@ -206,10 +206,29 @@ class MainActivity : Activity() {
             setPadding(0, 12, 0, 0)
         }
         val meta = TextView(this).apply {
-            text = "Free · Code: ${pack.code}"
+            text = "Free · Code: ${pack.code} · ${pack.viewCount} views · ${pack.likeCount} likes"
             textSize = 12f
             setPadding(0, 3, 0, 8)
         }
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 6)
+        }
+        val likeButton = Button(this).apply {
+            text = "♡ Like"
+            textSize = 12f
+            setOnClickListener {
+                scope.launch(Dispatchers.IO) {
+                    repository.likePack(pack.id)
+                    withContext(Dispatchers.Main) {
+                        text = "♥ Liked"
+                        meta.text = "Free · Code: ${pack.code} · ${pack.viewCount} views · ${pack.likeCount + 1} likes"
+                    }
+                }
+            }
+        }
+        actions.addView(likeButton)
         val hint = TextView(this).apply {
             text = "Tap to preview and set"
             textSize = 13f
@@ -218,6 +237,7 @@ class MainActivity : Activity() {
         card.addView(image)
         card.addView(title)
         card.addView(meta)
+        card.addView(actions)
         card.addView(hint)
 
         image.load(repository.absoluteUrl(pack.previewUrl)) {
@@ -283,6 +303,7 @@ class MainActivity : Activity() {
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    repository.recordPackView(pack.id)
                     repository.fetchAndCacheScene(pack.sceneUrl) { completed, total ->
                         scope.launch(Dispatchers.Main) {
                             if (total > 0) {

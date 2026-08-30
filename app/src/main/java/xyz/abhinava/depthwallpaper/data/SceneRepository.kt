@@ -174,7 +174,9 @@ class SceneRepository(private val context: Context) {
                         source = item.optString("source", "unknown"),
                         publishedAt = item.optString("publishedAt").ifBlank { null },
                         previewUrl = item.optString("previewUrl"),
-                        sceneUrl = item.optString("sceneUrl")
+                        sceneUrl = item.optString("sceneUrl"),
+                        viewCount = item.optInt("viewCount", item.optInt("views", 0)),
+                        likeCount = item.optInt("likeCount", item.optInt("likes", 0))
                     )
                 )
             }
@@ -193,6 +195,7 @@ class SceneRepository(private val context: Context) {
         for (p in packs) arr.put(JSONObject().apply {
             put("id", p.id); put("code", p.code); put("title", p.title); put("source", p.source)
             put("publishedAt", p.publishedAt ?: ""); put("previewUrl", p.previewUrl); put("sceneUrl", p.sceneUrl)
+            put("viewCount", p.viewCount); put("likeCount", p.likeCount)
         })
         return arr.toString()
     }
@@ -208,8 +211,18 @@ class SceneRepository(private val context: Context) {
             source = item.optString("source", "unknown"),
             publishedAt = item.optString("publishedAt").ifBlank { null },
             previewUrl = item.optString("previewUrl"),
-            sceneUrl = item.optString("sceneUrl")
+            sceneUrl = item.optString("sceneUrl"),
+            viewCount = item.optInt("viewCount", item.optInt("views", 0)),
+            likeCount = item.optInt("likeCount", item.optInt("likes", 0))
         )
+    }
+
+    fun recordPackView(packId: String) {
+        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/view", "{}") }
+    }
+
+    fun likePack(packId: String) {
+        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/like", "{}") }
     }
 
     fun absoluteUrl(pathOrUrl: String): String {
@@ -252,6 +265,27 @@ class SceneRepository(private val context: Context) {
             if (code !in 200..299) error("Asset HTTP $code")
             file.parentFile?.mkdirs()
             file.outputStream().use { out -> conn.inputStream.use { input -> input.copyTo(out) } }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun httpPostJson(url: String, json: String): String {
+        val bytes = json.toByteArray(Charsets.UTF_8)
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8000
+            readTimeout = 12000
+            doOutput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Content-Length", bytes.size.toString())
+        }
+        try {
+            conn.outputStream.use { it.write(bytes) }
+            val code = conn.responseCode
+            if (code !in 200..299) error("HTTP $code")
+            return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
         }
