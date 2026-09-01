@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.Menu
@@ -20,6 +21,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -38,6 +40,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import xyz.abhinava.depthwallpaper.R
 import xyz.abhinava.depthwallpaper.data.SceneRepository
 import xyz.abhinava.depthwallpaper.data.WallpaperCategory
 import xyz.abhinava.depthwallpaper.data.WallpaperPack
@@ -45,7 +48,7 @@ import xyz.abhinava.depthwallpaper.wallpaper.DepthWallpaperService
 import java.time.Instant
 
 class MainActivity : Activity() {
-    private enum class Section { FEATURED, BROWSE, FAVORITES }
+    private enum class Section { BROWSE, FAVORITES }
     private enum class SortMode { MOST_LIKED, NEWEST, A_TO_Z, Z_TO_A }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -59,6 +62,15 @@ class MainActivity : Activity() {
     private lateinit var emptyText: TextView
     private lateinit var emptyAction: Button
     private lateinit var content: LinearLayout
+    private lateinit var heroImage: ImageView
+    private lateinit var heroSideFade: View
+    private lateinit var heroBottomFade: View
+    private lateinit var headerText: LinearLayout
+    private lateinit var searchBar: View
+    private lateinit var searchToggle: View
+    private lateinit var railScroll: HorizontalScrollView
+    private lateinit var railEdgeFade: View
+    private lateinit var railMoreButton: View
     private lateinit var loadingOverlay: FrameLayout
     private lateinit var overlayStatus: TextView
     private lateinit var overlayProgress: ProgressBar
@@ -68,11 +80,9 @@ class MainActivity : Activity() {
     private var categories: List<WallpaperCategory> = WallpaperCategory.fallback
     private var favoriteIds: Set<String> = emptySet()
     private var browseOrder: List<String> = emptyList()
-    private var highlightedIds: List<String> = emptyList()
-    private var currentSection = Section.FEATURED
+    private var currentSection = Section.BROWSE
     private var currentCategory: String? = null
     private var currentSort = SortMode.MOST_LIKED
-    private var isSearchVisible = false
     private var searchQuery = ""
     private var isRefreshing = false
     private var isDownloading = false
@@ -89,32 +99,32 @@ class MainActivity : Activity() {
 
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(22), dp(18), dp(28))
-            setBackgroundColor(0xFFF8F6FB.toInt())
+            setPadding(0, dp(10), 0, dp(28))
+            setBackgroundColor(PAGE_BACKGROUND)
         }
         status = TextView(this).apply {
             text = "Loading gallery…"
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(0xFF756B7E.toInt())
-            setPadding(0, 0, 0, dp(8))
+            setPadding(dp(18), 0, dp(18), dp(8))
         }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = true
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply {
-                setMargins(0, 0, 0, dp(12))
+                setMargins(dp(18), 0, dp(18), dp(12))
             }
         }
         searchInput = EditText(this).apply {
-            hint = "Search name or wallpaper code"
+            hint = "Search by wallpaper code or keyword…"
             setSingleLine(true)
-            visibility = View.GONE
-            textSize = 16f
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE4DCE9.toInt(), dp(18), 1)
+            textSize = 15f
+            background = null
+            setPadding(0, 0, 0, 0)
+            setTextColor(0xFF201A2B.toInt())
+            setHintTextColor(0xFF9A93A6.toInt())
             setOnEditorActionListener { _, _, _ -> applySearch(text?.toString().orEmpty()); true }
-            setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) applySearch(text?.toString().orEmpty()) }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { applySearch(s?.toString().orEmpty()) }
@@ -124,7 +134,7 @@ class MainActivity : Activity() {
         categoryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, dp(12), dp(12))
+            setPadding(dp(18), dp(2), dp(10), dp(2))
         }
         galleryAdapter = GalleryAdapter()
         galleryList = RecyclerView(this).apply {
@@ -140,15 +150,15 @@ class MainActivity : Activity() {
         emptyView = createEmptyState()
 
         content.addView(createHeader())
+        content.addView(createSearchBar(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(18), 0, dp(18), dp(14))
+        })
         content.addView(status)
         content.addView(progress)
-        content.addView(searchInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, 0, 0, dp(12))
-        })
-        content.addView(HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(categoryRow)
-        })
+        content.addView(createCategoryRail(), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(12) })
         content.addView(FrameLayout(this).apply {
             addView(galleryList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(emptyView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
@@ -156,7 +166,7 @@ class MainActivity : Activity() {
 
         loadingOverlay = createLoadingOverlay()
         setContentView(FrameLayout(this).apply {
-            setBackgroundColor(0xFFF8F6FB.toInt())
+            setBackgroundColor(PAGE_BACKGROUND)
             addView(content)
             addView(loadingOverlay)
         })
@@ -166,16 +176,19 @@ class MainActivity : Activity() {
         val cached = repository.loadCachedGallery()
         if (cached.isNotEmpty()) {
             allPacks = cached
+            categories = repository.loadCachedCategories().ifEmpty { deriveCategories(cached) }
             rebuildOrders()
-            hideProgress("Pull down to refresh")
+            hideProgress(IDLE_STATUS)
             renderCurrentSection()
         }
-        refreshGallery(showLoading = cached.isEmpty())
+        // Only reach for the network when there is nothing cached, or the cache has aged out.
+        if (cached.isEmpty() || !repository.isGalleryCacheFresh()) {
+            refreshGallery(showLoading = cached.isEmpty())
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, MENU_FEATURED, 0, "Featured").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-        menu.add(0, MENU_BROWSE, 1, "Browse").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        menu.add(0, MENU_BROWSE, 1, "All wallpapers").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         menu.add(0, MENU_FAVORITES, 2, "Favourites").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         menu.add(0, MENU_SEARCH, 3, "Search").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         menu.add(0, MENU_CODE, 4, "Enter wallpaper code").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
@@ -185,7 +198,6 @@ class MainActivity : Activity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            MENU_FEATURED -> { switchSection(Section.FEATURED); true }
             MENU_BROWSE -> { switchSection(Section.BROWSE); true }
             MENU_FAVORITES -> { switchSection(Section.FAVORITES); true }
             MENU_SEARCH -> { toggleSearch(); true }
@@ -204,50 +216,207 @@ class MainActivity : Activity() {
     private fun applyInsets() {
         content.setOnApplyWindowInsetsListener { _, insets ->
             val system = insets.getInsets(WindowInsets.Type.systemBars())
-            content.setPadding(dp(18), dp(14) + system.top, dp(18), system.bottom)
-            galleryList.setPadding(0, 0, 0, dp(28))
+            content.setPadding(0, 0, 0, system.bottom)
+            heroImage.layoutParams.height = dp(HERO_HEIGHT_DP) + system.top
+            heroSideFade.layoutParams.height = dp(HERO_HEIGHT_DP) + system.top
+            (heroBottomFade.layoutParams as FrameLayout.LayoutParams).topMargin =
+                dp(HERO_HEIGHT_DP) + system.top - dp(56)
+            headerText.setPadding(dp(18), system.top + dp(10), dp(18), dp(16))
+            (searchToggle.layoutParams as FrameLayout.LayoutParams).topMargin = system.top + dp(14)
+            headerText.requestLayout()
+            galleryList.setPadding(dp(12), 0, dp(12), dp(28))
             insets
         }
     }
 
-    private fun createHeader(): LinearLayout {
-        val header = LinearLayout(this).apply {
+    /**
+     * Brand block on the left, hero art bleeding off the top right corner and fading into the page
+     * on its inner edges so it reads as artwork rather than a pasted-in rectangle.
+     */
+    private fun createHeader(): View {
+        val header = FrameLayout(this)
+        val heroWidth = dp(250)
+        val heroHeight = dp(HERO_HEIGHT_DP)
+        val hero = ImageView(this).apply {
+            setImageResource(R.drawable.header_hero)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+        val transparentPage = PAGE_BACKGROUND and 0x00FFFFFF
+        val sideFade = View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(PAGE_BACKGROUND, transparentPage)
+            )
+        }
+        val bottomFade = View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(transparentPage, PAGE_BACKGROUND)
+            )
+        }
+        heroImage = hero
+        heroSideFade = sideFade
+        heroBottomFade = bottomFade
+        header.addView(hero, FrameLayout.LayoutParams(heroWidth, heroHeight, Gravity.END or Gravity.TOP))
+        header.addView(sideFade, FrameLayout.LayoutParams(dp(110), heroHeight, Gravity.END or Gravity.TOP).apply {
+            rightMargin = heroWidth - dp(110)
+        })
+        header.addView(bottomFade, FrameLayout.LayoutParams(heroWidth, dp(56), Gravity.END or Gravity.TOP).apply {
+            topMargin = heroHeight - dp(56)
+        })
+
+        val titleRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(14))
         }
-        val spacer = FrameLayout(this)
+        val appMark = ImageView(this).apply {
+            setImageResource(R.drawable.daily_live_wallpapers_icon)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = roundedRect(0xFF7C4DFF.toInt(), 0x00000000, dp(14), 0)
+            clipToOutline = true
+        }
         val titleView = TextView(this).apply {
-            text = "Live Wallpapers"
-            textSize = 24f
+            text = "Wallpaper"
+            textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
             setTextColor(0xFF16121D.toInt())
         }
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE7DFEE.toInt(), dp(999), 1)
-            elevation = dp(3).toFloat()
-            setPadding(dp(3), dp(3), dp(3), dp(3))
+        titleRow.addView(appMark, LinearLayout.LayoutParams(dp(48), dp(48)).apply { rightMargin = dp(12) })
+        titleRow.addView(titleView)
+        val subtitle = TextView(this).apply {
+            text = "Beautiful wallpapers for every mood"
+            textSize = 15f
+            setTextColor(0xFF6B6478.toInt())
+            setPadding(0, dp(8), 0, 0)
         }
-        actions.addView(headerIcon("🔍") { toggleSearch() })
-        actions.addView(headerIcon("↕") { showSortDialog() })
-        header.addView(spacer, LinearLayout.LayoutParams(0, dp(46), 1f))
-        header.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
-        header.addView(actions, LinearLayout.LayoutParams(0, dp(46), 1f).apply { gravity = Gravity.END })
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(16))
+            addView(titleRow)
+            addView(subtitle, LinearLayout.LayoutParams(dp(215), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        headerText = textColumn
+        header.addView(textColumn, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.START or Gravity.BOTTOM
+        ))
+        val toggle = ImageView(this).apply {
+            setImageResource(R.drawable.ic_search)
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE9E2F0.toInt(), dp(999), 1)
+            elevation = dp(3).toFloat()
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Search"
+            setOnClickListener { toggleSearch() }
+        }
+        searchToggle = toggle
+        header.addView(toggle, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+            rightMargin = dp(18)
+            topMargin = dp(14)
+        })
         return header
     }
 
-    private fun headerIcon(label: String, onClick: () -> Unit): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 17f
-            gravity = Gravity.CENTER
-            setTextColor(0xFF201A2B.toInt())
-            setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(dp(38), ViewGroup.LayoutParams.MATCH_PARENT)
+    /**
+     * The chip rail scrolls past the right edge, which is easy to miss when the chips are white on
+     * a near-white page - a plain gradient fade is invisible there. A chevron over the trailing edge
+     * says so outright and scrolls the rail on tap; both it and the fade behind it hide once the
+     * rail is scrolled to the end, so they only appear when there is more to reach.
+     */
+    private fun createCategoryRail(): View {
+        val scroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            addView(categoryRow)
         }
+        val edgeFade = View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(PAGE_BACKGROUND and 0x00FFFFFF, PAGE_BACKGROUND)
+            )
+        }
+        val moreButton = TextView(this).apply {
+            text = "›"
+            textSize = 19f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFF6B6478.toInt())
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFDFD7E9.toInt(), dp(999), 1)
+            elevation = dp(4).toFloat()
+            isClickable = true
+            contentDescription = "More categories"
+            setOnClickListener { scroll.smoothScrollBy((scroll.width * 0.6f).toInt(), 0) }
+        }
+        railScroll = scroll
+        railEdgeFade = edgeFade
+        railMoreButton = moreButton
+        scroll.setOnScrollChangeListener { _, _, _, _, _ -> updateRailHint() }
+        // canScrollHorizontally() only answers once the rail has been measured, so re-ask on layout
+        // as well as on scroll - asking too early reports "nothing to scroll" and hides the hint.
+        // The overlay is sized from the rail here too: a MATCH_PARENT child stretches a
+        // WRAP_CONTENT FrameLayout to the full height the parent offers, which would swallow the
+        // grid below and strand the chevron in the middle of the screen.
+        scroll.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val railHeight = bottom - top
+            if (railHeight > 0 && edgeFade.layoutParams.height != railHeight) {
+                edgeFade.layoutParams = edgeFade.layoutParams.apply { height = railHeight }
+            }
+            updateRailHint()
+        }
+        return FrameLayout(this).apply {
+            addView(scroll, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            addView(edgeFade, FrameLayout.LayoutParams(
+                dp(44),
+                dp(48),
+                Gravity.END
+            ))
+            addView(moreButton, FrameLayout.LayoutParams(
+                dp(30),
+                dp(30),
+                Gravity.END or Gravity.CENTER_VERTICAL
+            ).apply { rightMargin = dp(8) })
+        }
+    }
+
+    private fun updateRailHint() {
+        if (!::railScroll.isInitialized) return
+        val wanted = if (railScroll.canScrollHorizontally(1)) View.VISIBLE else View.INVISIBLE
+        // Only touch visibility on an actual change; the layout listener below would otherwise
+        // bounce between layout passes.
+        if (railEdgeFade.visibility != wanted) railEdgeFade.visibility = wanted
+        if (railMoreButton.visibility != wanted) railMoreButton.visibility = wanted
+    }
+
+    private fun createSearchBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            visibility = View.GONE
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundedRect(0xFFFFFFFF.toInt(), 0xFFE9E2F0.toInt(), dp(28), 1)
+            elevation = dp(2).toFloat()
+            setPadding(dp(16), dp(2), dp(8), dp(2))
+        }
+        val glass = ImageView(this).apply { setImageResource(R.drawable.ic_search) }
+        val scan = ImageView(this).apply {
+            setImageResource(R.drawable.ic_scan)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            isClickable = true
+            isFocusable = true
+            foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackgroundBorderless)).let {
+                val drawable = it.getDrawable(0); it.recycle(); drawable
+            }
+            setOnClickListener { showCodeDialog() }
+        }
+        bar.addView(glass, LinearLayout.LayoutParams(dp(22), dp(22)).apply { rightMargin = dp(12) })
+        bar.addView(searchInput, LinearLayout.LayoutParams(0, dp(54), 1f))
+        bar.addView(scan, LinearLayout.LayoutParams(dp(42), dp(42)))
+        searchBar = bar
+        return bar
     }
 
     private fun installPullToRefresh() {
@@ -287,7 +456,7 @@ class MainActivity : Activity() {
                 categories = taxonomy.ifEmpty { deriveCategories(packs) }
                 favoriteIds = repository.loadFavoriteIds()
                 rebuildOrders()
-                hideProgress("Pull down to refresh")
+                hideProgress(IDLE_STATUS)
                 renderCurrentSection()
             }.onFailure { error ->
                 val cached = repository.loadCachedGallery()
@@ -311,11 +480,15 @@ class MainActivity : Activity() {
     }
 
     private fun toggleSearch() {
-        isSearchVisible = !isSearchVisible
-        searchInput.visibility = if (isSearchVisible) View.VISIBLE else View.GONE
-        if (isSearchVisible) {
+        val opening = searchBar.visibility != View.VISIBLE
+        searchBar.visibility = if (opening) View.VISIBLE else View.GONE
+        val keyboard = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        if (opening) {
             searchInput.requestFocus()
+            keyboard.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
+            keyboard.hideSoftInputFromWindow(searchInput.windowToken, 0)
+            searchInput.clearFocus()
             searchInput.setText("")
             applySearch("")
         }
@@ -342,12 +515,6 @@ class MainActivity : Activity() {
 
     private fun rebuildOrders() {
         browseOrder = sortedBrowsePacks(allPacks).map { it.id }
-        highlightedIds = allPacks
-            .sortedWith(compareByDescending<WallpaperPack> { it.likeCount }
-                .thenByDescending { it.viewCount }
-                .thenByDescending { sortTime(it) })
-            .take(HIGHLIGHT_COUNT)
-            .map { it.id }
     }
 
     private fun sortedBrowsePacks(packs: List<WallpaperPack>): List<WallpaperPack> {
@@ -401,29 +568,53 @@ class MainActivity : Activity() {
 
     private fun renderCategoryRail() {
         categoryRow.removeAllViews()
-        categoryRow.addView(sectionChip("✦ Featured", currentSection == Section.FEATURED) { switchSection(Section.FEATURED) })
-        categoryRow.addView(sectionChip("▦ Browse", currentSection == Section.BROWSE && currentCategory == null) { switchSection(Section.BROWSE) })
-        categoryRow.addView(sectionChip("♥ Favourites", currentSection == Section.FAVORITES) { switchSection(Section.FAVORITES) })
-        if (currentSection == Section.BROWSE) {
-            categories.forEach { category ->
-                categoryRow.addView(sectionChip("${categoryIcon(category.slug)} ${category.title}", currentCategory == category.slug) { switchSection(Section.BROWSE, category.slug) })
-            }
+        val allSelected = currentSection == Section.BROWSE && currentCategory == null
+        categoryRow.addView(sectionChip("✨", "All", allSelected) { switchSection(Section.BROWSE) })
+        categoryRow.addView(sectionChip("❤️", "Favourites", currentSection == Section.FAVORITES) { switchSection(Section.FAVORITES) })
+        categories.forEach { category ->
+            val selected = currentSection == Section.BROWSE && currentCategory == category.slug
+            categoryRow.addView(sectionChip(categoryIcon(category.slug), category.title, selected) {
+                switchSection(Section.BROWSE, category.slug)
+            })
         }
+        categoryRow.addView(sortChip())
+        categoryRow.post { updateRailHint() }
     }
 
     private fun categoryIcon(slug: String): String = when (slug) {
-        "anime" -> "⚡"
-        "nature" -> "🌿"
-        "devotional" -> "🛕"
-        "vehicles" -> "🏎"
-        "neon" -> "✦"
-        else -> "•"
+        "anime" -> "🌸"
+        "nature" -> "🍃"
+        "devotional" -> "🙏"
+        "vehicles" -> "🚗"
+        "neon" -> "🌀"
+        else -> "🖼"
+    }
+
+    private fun badgeColor(slug: String): Int = when (slug) {
+        "anime" -> 0xFF7C4DFF.toInt()
+        "nature" -> 0xFF2FA35B.toInt()
+        "devotional" -> 0xFFF0921E.toInt()
+        "vehicles" -> 0xFF2F6BFF.toInt()
+        "neon" -> 0xFFEC4899.toInt()
+        else -> 0xFF6B7280.toInt()
+    }
+
+    /**
+     * Card titles arrive prefixed with their series or category ("Anime Bleach: Ichigo Kurosaki"),
+     * which the badge right above already says. Strip that lead-in so the card reads as a name.
+     */
+    private fun displayTitle(pack: WallpaperPack): String {
+        val afterColon = pack.title.substringAfter(':', pack.title).trim().ifBlank { pack.title }
+        val categoryWord = WallpaperCategory.titleFor(pack.category).substringBefore(' ')
+        val trimmed = if (afterColon.length > categoryWord.length + 1 &&
+            afterColon.startsWith("$categoryWord ", ignoreCase = true)
+        ) afterColon.substring(categoryWord.length + 1) else afterColon
+        return trimmed.split(' ').joinToString(" ") { word -> word.replaceFirstChar { it.titlecase() } }
     }
 
     private fun orderedPacksForCurrentSection(): List<WallpaperPack> {
         val byId = allPacks.associateBy { it.id }
         val orderedIds = when (currentSection) {
-            Section.FEATURED -> highlightedIds
             Section.BROWSE -> browseOrder
             Section.FAVORITES -> browseOrder.filter { favoriteIds.contains(it) }
         }
@@ -440,8 +631,9 @@ class MainActivity : Activity() {
     private inner class GalleryViewHolder(
         val card: LinearLayout,
         val image: ImageView,
+        val badge: TextView,
         val titleOverlay: TextView,
-        val likeButton: Button,
+        val likeButton: TextView,
         val meta: TextView,
         val hint: TextView
     ) : RecyclerView.ViewHolder(card)
@@ -479,75 +671,111 @@ class MainActivity : Activity() {
             val cardWidth = gridCardWidth()
             val card = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 0, 0, dp(12))
                 isClickable = true
                 isFocusable = true
+                background = roundedRect(0xFFFFFFFF.toInt(), 0xFFEFE9F5.toInt(), dp(20), 1)
+                elevation = dp(2).toFloat()
+                setPadding(dp(6), dp(6), dp(6), dp(12))
                 foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
                     val drawable = it.getDrawable(0); it.recycle(); drawable
                 }
                 layoutParams = RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(dp(4), dp(4), dp(4), dp(16)) }
+                ).apply { setMargins(dp(6), dp(6), dp(6), dp(12)) }
             }
             val imageFrame = FrameLayout(this@MainActivity).apply {
                 clipToOutline = true
-                elevation = dp(2).toFloat()
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.58f).toInt())
-                background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(24), 0)
+                background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(15), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    (cardWidth * CARD_IMAGE_RATIO).toInt()
+                )
             }
-            val image = ImageView(this@MainActivity).apply {
+            val image = TopCropImageView(this@MainActivity).apply {
                 adjustViewBounds = false
-                scaleType = ImageView.ScaleType.CENTER_CROP
                 layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            }
+            val scrim = View(this@MainActivity).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(0x00000000, 0x59000000, 0xD9000000.toInt())
+                )
+            }
+            val badge = TextView(this@MainActivity).apply {
+                textSize = 10f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFFFFF.toInt())
+                setPadding(dp(9), dp(3), dp(9), dp(4))
             }
             val titleOverlay = TextView(this@MainActivity).apply {
                 maxLines = 2
-                textSize = 14f
+                ellipsize = TextUtils.TruncateAt.END
+                textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(0xFFFFFFFF.toInt())
-                setPadding(dp(10), dp(30), dp(52), dp(12))
-                background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x66000000, 0xE0000000.toInt()))
+                setPadding(0, dp(6), 0, 0)
             }
-            val likeButton = Button(this@MainActivity).apply {
+            val overlay = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), 0, dp(56), dp(10))
+                addView(badge, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                addView(titleOverlay)
+            }
+            val likeButton = TextView(this@MainActivity).apply {
                 textSize = 12f
-                background = roundedRect(0xEFFFFFFF.toInt(), 0x99FFFFFF.toInt(), dp(999), 1)
-                minHeight = 0
-                minWidth = 0
-                setPadding(dp(6), 0, dp(6), 0)
+                gravity = Gravity.CENTER
+                setTextColor(0xFFFFFFFF.toInt())
+                background = roundedRect(0x66000000, 0x00000000, dp(999), 0)
+                setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             imageFrame.addView(image)
-            imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96), Gravity.BOTTOM))
-            imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(72), dp(42), Gravity.BOTTOM or Gravity.END).apply {
+            imageFrame.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104), Gravity.BOTTOM))
+            imageFrame.addView(overlay, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START
+            ))
+            imageFrame.addView(likeButton, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
                 bottomMargin = dp(10)
-                rightMargin = dp(8)
+                rightMargin = dp(10)
             })
             val meta = TextView(this@MainActivity).apply {
-                textSize = 11f
-                setTextColor(0xFF62596A.toInt())
-                setPadding(dp(2), dp(7), dp(2), dp(1))
+                textSize = 12f
+                setSingleLine(true)
+                setTextColor(0xFF6B6478.toInt())
+                setPadding(dp(6), dp(10), dp(6), 0)
+                compoundDrawablePadding = dp(6)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_eye, 0, 0, 0)
             }
             val hint = TextView(this@MainActivity).apply {
-                textSize = 10f
-                maxLines = 1
-                setTextColor(0xFF8A8190.toInt())
-                setPadding(dp(2), 0, dp(2), dp(2))
+                textSize = 11f
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(0xFF9A93A6.toInt())
+                setPadding(dp(6), dp(4), dp(6), 0)
             }
             card.addView(imageFrame)
             card.addView(meta)
             card.addView(hint)
-            return GalleryViewHolder(card, image, titleOverlay, likeButton, meta, hint)
+            return GalleryViewHolder(card, image, badge, titleOverlay, likeButton, meta, hint)
         }
 
         override fun onBindViewHolder(holder: GalleryViewHolder, position: Int) {
             val pack = items[position]
             val isFav = favoriteIds.contains(pack.id)
             holder.card.setOnClickListener { downloadPackAndOpenSetter(pack) }
-            holder.titleOverlay.text = pack.title
+            holder.badge.text = WallpaperCategory.titleFor(pack.category)
+            holder.badge.background = roundedRect(badgeColor(pack.category), 0x00000000, dp(999), 0)
+            holder.titleOverlay.text = displayTitle(pack)
             holder.likeButton.text = if (isFav) "\u2665 ${pack.likeCount}" else "\u2661 ${pack.likeCount}"
-            holder.likeButton.setTextColor(if (isFav) 0xFFE91E63.toInt() else 0xFF2D2533.toInt())
+            holder.likeButton.setTextColor(if (isFav) 0xFFFF6B93.toInt() else 0xFFFFFFFF.toInt())
             holder.likeButton.setOnClickListener { toggleFavorite(pack, !favoriteIds.contains(pack.id)) }
-            holder.meta.text = "${WallpaperCategory.titleFor(pack.category)} \u00b7 ${pack.viewCount} views"
+            holder.meta.text = "${pack.viewCount} views"
             holder.hint.text = "Code: ${pack.code}"
 
             val url = repository.absoluteUrl(pack.previewUrl)
@@ -572,13 +800,13 @@ class MainActivity : Activity() {
 
     private fun previewTargetWidth(): Int = gridCardWidth()
 
-    private fun previewTargetHeight(): Int = (gridCardWidth() * 1.58f).toInt()
+    private fun previewTargetHeight(): Int = (gridCardWidth() * CARD_IMAGE_RATIO).toInt()
 
     private fun gridCardWidth(): Int {
         val screen = resources.displayMetrics.widthPixels
-        val horizontalPadding = dp(18) * 2
-        val gap = dp(16)
-        return ((screen - horizontalPadding - gap) / 2).coerceAtLeast(dp(148))
+        val listPadding = dp(12) * 2
+        val cardMargins = dp(6) * 4
+        return ((screen - listPadding - cardMargins) / 2).coerceAtLeast(dp(148))
     }
 
     private fun toggleFavorite(pack: WallpaperPack, liked: Boolean) {
@@ -610,20 +838,49 @@ class MainActivity : Activity() {
         return container
     }
 
-    private fun sectionChip(label: String, selected: Boolean, onClick: () -> Unit): TextView {
+    private fun sectionChip(icon: String, label: String, selected: Boolean, onClick: () -> Unit): TextView {
         return TextView(this).apply {
-            text = label
+            text = "$icon  $label"
             textSize = 14f
             typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             setTextColor(if (selected) 0xFFFFFFFF.toInt() else 0xFF342A45.toInt())
-            setPadding(dp(15), dp(10), dp(15), dp(10))
-            background = roundedRect(if (selected) 0xFF7C4DFF.toInt() else 0xFFFFFFFF.toInt(), if (selected) 0xFF7C4DFF.toInt() else 0xFFE6DEEA.toInt(), dp(999), 1)
-            elevation = if (selected) dp(2).toFloat() else 0f
+            setPadding(dp(15), dp(11), dp(17), dp(11))
+            background = roundedRect(
+                if (selected) 0xFF7C4DFF.toInt() else 0xFFFFFFFF.toInt(),
+                if (selected) 0xFF7C4DFF.toInt() else 0xFFE9E2F0.toInt(),
+                dp(999),
+                1
+            )
+            elevation = if (selected) dp(2).toFloat() else dp(1).toFloat()
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, dp(8), 0)
-            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, dp(8), 0) }
         }
+    }
+
+    /** The mock has no sort control; keeping it on the rail is the least intrusive home for it. */
+    private fun sortChip(): TextView {
+        return TextView(this).apply {
+            text = "⇅  ${sortLabel(currentSort)}"
+            textSize = 13f
+            setTextColor(0xFF6B6478.toInt())
+            setPadding(dp(14), dp(11), dp(16), dp(11))
+            background = roundedRect(0x00000000, 0xFFDFD7E9.toInt(), dp(999), 1)
+            setOnClickListener { showSortDialog() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, dp(8), 0) }
+        }
+    }
+
+    private fun sortLabel(mode: SortMode): String = when (mode) {
+        SortMode.MOST_LIKED -> "Most liked"
+        SortMode.NEWEST -> "Newest"
+        SortMode.A_TO_Z -> "A–Z"
+        SortMode.Z_TO_A -> "Z–A"
     }
 
     private fun showCodeDialog() {
@@ -748,6 +1005,7 @@ class MainActivity : Activity() {
 
     private fun showProgress(message: String, value: Int? = null, max: Int? = null) {
         status.text = message
+        status.visibility = View.VISIBLE
         overlayStatus.text = message
         progress.visibility = View.VISIBLE
         loadingOverlay.visibility = View.VISIBLE
@@ -766,6 +1024,7 @@ class MainActivity : Activity() {
 
     private fun hideProgress(message: String) {
         status.text = message
+        status.visibility = if (message == IDLE_STATUS) View.GONE else View.VISIBLE
         progress.visibility = View.GONE
         progress.isIndeterminate = false
         progress.progress = 0
@@ -803,9 +1062,16 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val HIGHLIGHT_COUNT = 5
         private const val SEARCH_DEBOUNCE_MS = 250L
-        private const val MENU_FEATURED = 1
+        private const val IDLE_STATUS = "Pull down to refresh"
+        /**
+         * Card image height as a fraction of card width. The mock crops cards to roughly 3:2
+         * landscape, but every preview is a portrait wallpaper (1344x2992), so a wide card keeps a
+         * thin band of it; taller cards show the subject. Paired with TopCropImageView.
+         */
+        private const val CARD_IMAGE_RATIO = 1.3f
+        private const val HERO_HEIGHT_DP = 150
+        private val PAGE_BACKGROUND = 0xFFF8F6FB.toInt()
         private const val MENU_BROWSE = 2
         private const val MENU_FAVORITES = 3
         private const val MENU_SEARCH = 4

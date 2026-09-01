@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Placeholder for the header photo in the gallery mock. Swap in a real image by dropping a
+  header_hero.png into res/drawable-nodpi/ and deleting this file; nothing in code changes.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="320dp" android:height="200dp"
+    android:viewportWidth="640" android:viewportHeight="400">
+    <path android:pathData="M0,0h640v400h-640z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="400">
+                <item android:offset="0" android:color="#FFDCC0E8"/>
+                <item android:offset="0.45" android:color="#FFE9D7EC"/>
+                <item android:offset="1" android:color="#FFF6EFF6"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FFF6D9A8" android:fillAlpha="0.75" android:pathData="M470,96 a58,58 0,1 0,1 0"/>
+    <path android:fillColor="#FF8E9BC4" android:pathData="M280,300 L400,120 L520,300 Z"/>
+    <path android:fillColor="#FF6E7DAE" android:pathData="M430,300 L540,150 L660,300 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.92" android:pathData="M400,120 L438,177 L414,168 L392,186 L370,160 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.92" android:pathData="M540,150 L572,199 L552,190 L532,206 L512,183 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.55" android:pathData="M150,268 C260,238 340,282 450,258 C540,238 600,266 660,254 L660,300 L150,300 Z"/>
+    <path android:pathData="M120,400 C220,300 300,336 400,286 C500,236 570,282 660,250 L660,400 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="250" android:endX="0" android:endY="400">
+                <item android:offset="0" android:color="#FF6FAE63"/>
+                <item android:offset="1" android:color="#FF2F6B3F"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FF244F31" android:fillAlpha="0.85" android:pathData="M180,400 C280,352 350,382 440,346 C530,310 590,342 660,318 L660,400 Z"/>
+</vector>

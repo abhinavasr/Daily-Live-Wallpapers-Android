@@ -176,8 +176,22 @@ class SceneRepository(private val context: Context) {
         val fresh = parseGallery(json)
         // A successful refresh is authoritative. The API already filters unpublished/hidden packs,
         // so merging older cached packs back in would resurrect wallpapers hidden from the gallery.
-        prefs.edit().putString(KEY_GALLERY_JSON, galleryToJson(fresh)).apply()
+        prefs.edit()
+            .putString(KEY_GALLERY_JSON, galleryToJson(fresh))
+            .putLong(KEY_GALLERY_FETCHED_AT, System.currentTimeMillis())
+            .apply()
         return fresh
+    }
+
+    /**
+     * The gallery only turns over as new wallpapers are published, so a launch inside this window
+     * renders from the cached listing without touching the network. Pull to refresh and the refresh
+     * menu item always go to the server.
+     */
+    fun isGalleryCacheFresh(): Boolean {
+        val fetchedAt = prefs.getLong(KEY_GALLERY_FETCHED_AT, 0L)
+        if (fetchedAt <= 0L) return false
+        return System.currentTimeMillis() - fetchedAt in 0 until GALLERY_TTL_MS
     }
 
     private fun parseGallery(json: String): List<WallpaperPack> {
@@ -239,6 +253,17 @@ class SceneRepository(private val context: Context) {
 
     fun fetchPackCategories(): List<WallpaperCategory> {
         val json = httpGetText("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/pack-categories")
+        val parsed = parseCategories(json)
+        if (parsed.isNotEmpty()) prefs.edit().putString(KEY_CATEGORIES_JSON, json).apply()
+        return parsed
+    }
+
+    fun loadCachedCategories(): List<WallpaperCategory> {
+        val cached = prefs.getString(KEY_CATEGORIES_JSON, null) ?: return emptyList()
+        return runCatching { parseCategories(cached) }.getOrDefault(emptyList())
+    }
+
+    private fun parseCategories(json: String): List<WallpaperCategory> {
         val arr = JSONArray(json)
         return buildList {
             for (i in 0 until arr.length()) {
@@ -355,6 +380,9 @@ class SceneRepository(private val context: Context) {
         private const val KEY_SCENE_ID = "scene_id"
         private const val KEY_FETCHED_AT = "fetched_at"
         private const val KEY_GALLERY_JSON = "gallery_json"
+        private const val KEY_GALLERY_FETCHED_AT = "gallery_fetched_at"
+        private const val KEY_CATEGORIES_JSON = "categories_json"
+        private const val GALLERY_TTL_MS = 6L * 60 * 60 * 1000
         private const val KEY_ACTIVE_SCENE_ID = "active_scene_id"
         private const val KEY_PENDING_SCENE_ID = "pending_scene_id"
         private const val KEY_PENDING_SCENE_TITLE = "pending_scene_title"
