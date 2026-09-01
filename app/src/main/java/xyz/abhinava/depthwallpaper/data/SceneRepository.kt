@@ -50,8 +50,6 @@ class SceneRepository(private val context: Context) {
         return loadCachedOrBundled()
     }
 
-    fun cachedSceneTitle(): String? = prefs.getString(KEY_SCENE_TITLE, null)
-
     fun cachedAssetFile(scene: DepthScene, asset: String): File {
         return File(File(context.filesDir, "wallpapers/${scene.id}/assets"), asset.substringAfterLast('/'))
     }
@@ -99,7 +97,28 @@ class SceneRepository(private val context: Context) {
         firstFailure?.let { throw IllegalStateException("Could not download wallpaper assets. Check your connection and try again.", it) }
 
         storeSceneJson(scene, json)
+        pruneCachedPacks(scene.id)
         return scene
+    }
+
+    /**
+     * Each downloaded pack is roughly 15-20 MB of layer PNGs and nothing ever deleted them, so a
+     * browsing user's app storage grew without bound. Keeps the most recently downloaded packs plus
+     * whatever is currently applied or pending.
+     */
+    private fun pruneCachedPacks(keepId: String) {
+        val root = File(context.filesDir, "wallpapers")
+        val dirs = root.listFiles()?.filter { it.isDirectory }.orEmpty()
+        if (dirs.size <= MAX_CACHED_PACKS) return
+        val protectedIds = setOfNotNull(
+            keepId,
+            prefs.getString(KEY_ACTIVE_SCENE_ID, null),
+            prefs.getString(KEY_PENDING_SCENE_ID, null)
+        )
+        dirs.filter { it.name !in protectedIds }
+            .sortedByDescending { it.lastModified() }
+            .drop((MAX_CACHED_PACKS - protectedIds.size).coerceAtLeast(1))
+            .forEach { runCatching { it.deleteRecursively() } }
     }
 
     fun markScenePending(scene: DepthScene) {
@@ -186,13 +205,6 @@ class SceneRepository(private val context: Context) {
         }
     }
 
-    private fun mergeGallery(old: List<WallpaperPack>, fresh: List<WallpaperPack>): List<WallpaperPack> {
-        val map = LinkedHashMap<String, WallpaperPack>()
-        for (p in fresh) map[p.id] = p
-        for (p in old) if (!map.containsKey(p.id)) map[p.id] = p
-        return map.values.toList()
-    }
-
     private fun galleryToJson(packs: List<WallpaperPack>): String {
         val arr = JSONArray()
         for (p in packs) arr.put(JSONObject().apply {
@@ -254,10 +266,6 @@ class SceneRepository(private val context: Context) {
 
     fun recordPackView(packId: String) {
         runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/view", statPayload()) }
-    }
-
-    fun likePack(packId: String) {
-        runCatching { httpPostJson("${BuildConfig.API_BASE_URL.trimEnd('/')}/wallpaper-api/packs/${java.net.URLEncoder.encode(packId, "UTF-8")}/like", statPayload(liked = true)) }
     }
 
     private fun statPayload(liked: Boolean? = null): String {
@@ -353,5 +361,6 @@ class SceneRepository(private val context: Context) {
         private const val KEY_PENDING_AT = "pending_at"
         private const val KEY_INSTALLATION_ID = "installation_id"
         private const val KEY_FAVORITES = "favorites"
+        private const val MAX_CACHED_PACKS = 8
     }
 }

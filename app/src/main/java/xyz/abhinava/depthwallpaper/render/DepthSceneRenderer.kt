@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
@@ -23,6 +24,19 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val backgroundColor = runCatching { Color.parseColor(scene.canvas.backgroundColor) }.getOrDefault(Color.rgb(7, 10, 24))
+
+    // Sorting and concatenating the layer lists once matters: draw() runs up to 60x a second and
+    // used to rebuild and re-sort this list on every frame.
+    private val orderedLayers: List<LayerSpec> = (scene.layers + scene.animatedLayers).sortedBy { it.z }
+
+    // Reused across frames so drawing allocates nothing and does not feed the GC mid-scroll.
+    private val dstRect = RectF()
+    private val drawableRect = Rect()
+    private val coverBounds = RectF()
+
+    private val targetWidth = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
+    private val targetHeight = context.resources.displayMetrics.heightPixels.coerceAtLeast(1)
+
     private val bitmaps: Map<String, LoadedLayer> = loadBitmaps()
     val hasAnimations: Boolean = scene.animatedLayers.isNotEmpty()
 
@@ -33,10 +47,14 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
 
         canvas.drawColor(backgroundColor)
         if (bitmaps.isNotEmpty()) drawBitmapLayers(canvas, width, height, tiltX, tiltY) else drawProceduralScene(canvas, width, height, tiltX, tiltY)
+    }
 
-        paint.color = Color.argb(45, 255, 255, 255)
-        paint.textSize = max(22f, width * 0.026f)
-        canvas.drawText(scene.title, width * 0.04f, height - width * 0.06f, paint)
+    /** Frees decoded layer bitmaps. The engine owns the renderer, so it must call this on teardown. */
+    fun release() {
+        for (loaded in bitmaps.values) {
+            (loaded.drawable as? AnimatedImageDrawable)?.stop()
+            loaded.bitmap?.recycle()
+        }
     }
 
     private fun loadBitmaps(): Map<String, LoadedLayer> {
@@ -55,10 +73,30 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                     visibleBounds = RectF(0f, 0f, drawable.intrinsicWidth.coerceAtLeast(1).toFloat(), drawable.intrinsicHeight.coerceAtLeast(1).toFloat())
                 )
             } else {
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
-                layer.id to LoadedLayer(bitmap, null, bitmap.width, bitmap.height, alphaBounds(bitmap))
+                val bitmap = decodeScaled(file) ?: return@mapNotNull null
+                // Only "contain" positions content by its visible pixels; for cover/stretch the
+                // bounds are never read, so skip the per-pixel scan entirely.
+                val bounds = if (resolvedFit(layer) == "contain") alphaBounds(bitmap)
+                             else RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+                layer.id to LoadedLayer(bitmap, null, bitmap.width, bitmap.height, bounds)
             }
         }.toMap()
+    }
+
+    /**
+     * Decodes at most one halving below the display resolution, so a 1344x2992 layer stops costing
+     * ~16 MB of heap on a phone that cannot show that many pixels. Never samples past the point
+     * where the bitmap would be smaller than the screen, so quality is unchanged.
+     */
+    private fun decodeScaled(file: java.io.File): Bitmap? {
+        val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, probe)
+        if (probe.outWidth <= 0 || probe.outHeight <= 0) return BitmapFactory.decodeFile(file.absolutePath)
+        var sample = 1
+        while (probe.outWidth / (sample * 2) >= targetWidth && probe.outHeight / (sample * 2) >= targetHeight) {
+            sample *= 2
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
     private fun loadAnimatedDrawableIfSupported(file: java.io.File, layer: LayerSpec): Drawable? {
@@ -74,18 +112,19 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
     }
 
     private fun drawBitmapLayers(canvas: Canvas, width: Float, height: Float, tiltX: Float, tiltY: Float) {
-        for (layer in (scene.layers + scene.animatedLayers).sortedBy { it.z }) {
+        for (layer in orderedLayers) {
             val loaded = bitmaps[layer.id] ?: continue
             val bitmap = loaded.bitmap
             val fit = resolvedFit(layer)
             val backgroundLayer = fit == "cover"
             val rawOffsetX = -tiltX * layer.parallaxX
             val rawOffsetY = tiltY * layer.parallaxY
-            val dst = when (fit) {
+            val dst = dstRect
+            when (fit) {
                 "stretch" -> {
                     val insetX = width * (1f - layer.scale.coerceAtLeast(0.01f)) / 2f
                     val insetY = height * (1f - layer.scale.coerceAtLeast(0.01f)) / 2f
-                    RectF(insetX + rawOffsetX, insetY + rawOffsetY, width - insetX + rawOffsetX, height - insetY + rawOffsetY)
+                    dst.set(insetX + rawOffsetX, insetY + rawOffsetY, width - insetX + rawOffsetX, height - insetY + rawOffsetY)
                 }
                 else -> {
                     val sourceWidth = bitmap?.width ?: loaded.width
@@ -98,7 +137,11 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                     val renderScale = baseScale * layer.scale
                     val renderedWidth = sourceWidth * renderScale
                     val renderedHeight = sourceHeight * renderScale
-                    val bounds = if (fit == "cover") RectF(0f, 0f, sourceWidth.toFloat(), sourceHeight.toFloat()) else loaded.visibleBounds
+                    val bounds = if (fit == "cover") {
+                        coverBounds.apply { set(0f, 0f, sourceWidth.toFloat(), sourceHeight.toFloat()) }
+                    } else {
+                        loaded.visibleBounds
+                    }
                     val visibleLeft = bounds.left * renderScale
                     val visibleTop = bounds.top * renderScale
                     val visibleWidth = bounds.width() * renderScale
@@ -107,7 +150,7 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                     val baseTop = height * layer.anchorY - visibleHeight * layer.pivotY - visibleTop
                     val offsetX = if (backgroundLayer) rawOffsetX else clampOffset(rawOffsetX, baseLeft, renderedWidth, width)
                     val offsetY = if (backgroundLayer) rawOffsetY else clampOffset(rawOffsetY, baseTop, renderedHeight, height)
-                    RectF(baseLeft + offsetX, baseTop + offsetY, baseLeft + offsetX + renderedWidth, baseTop + offsetY + renderedHeight)
+                    dst.set(baseLeft + offsetX, baseTop + offsetY, baseLeft + offsetX + renderedWidth, baseTop + offsetY + renderedHeight)
                 }
             }
             paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
@@ -115,7 +158,8 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
                 canvas.drawBitmap(bitmap, null, dst, paint)
             } else {
                 loaded.drawable?.alpha = paint.alpha
-                loaded.drawable?.bounds = android.graphics.Rect(dst.left.toInt(), dst.top.toInt(), dst.right.toInt(), dst.bottom.toInt())
+                drawableRect.set(dst.left.toInt(), dst.top.toInt(), dst.right.toInt(), dst.bottom.toInt())
+                loaded.drawable?.bounds = drawableRect
                 loaded.drawable?.draw(canvas)
                 loaded.drawable?.alpha = 255
             }
@@ -123,17 +167,23 @@ class DepthSceneRenderer(private val context: Context, private val scene: DepthS
         }
     }
 
+    /**
+     * Scans one row at a time via getPixels(). The previous getPixel()-per-pixel version made over
+     * a million JNI calls per layer and ran on the wallpaper engine's onCreate, stalling startup.
+     */
     private fun alphaBounds(bitmap: Bitmap): RectF {
         var left = bitmap.width
         var top = bitmap.height
         var right = -1
         var bottom = -1
         val step = 2
+        val row = IntArray(bitmap.width)
         var y = 0
         while (y < bitmap.height) {
+            bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
             var x = 0
             while (x < bitmap.width) {
-                if (Color.alpha(bitmap.getPixel(x, y)) > 8) {
+                if ((row[x] ushr 24) > 8) {
                     if (x < left) left = x
                     if (x > right) right = x
                     if (y < top) top = y

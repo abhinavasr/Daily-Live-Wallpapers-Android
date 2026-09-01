@@ -8,6 +8,8 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
@@ -21,13 +23,14 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,8 +53,11 @@ class MainActivity : Activity() {
     private lateinit var progress: ProgressBar
     private lateinit var categoryRow: LinearLayout
     private lateinit var searchInput: EditText
-    private lateinit var galleryContainer: GridLayout
-    private lateinit var scroll: ScrollView
+    private lateinit var galleryList: RecyclerView
+    private lateinit var galleryAdapter: GalleryAdapter
+    private lateinit var emptyView: LinearLayout
+    private lateinit var emptyText: TextView
+    private lateinit var emptyAction: Button
     private lateinit var content: LinearLayout
     private lateinit var loadingOverlay: FrameLayout
     private lateinit var overlayStatus: TextView
@@ -71,6 +77,8 @@ class MainActivity : Activity() {
     private var isRefreshing = false
     private var isDownloading = false
     private var pullStartY = 0f
+    private val searchDebounce = Handler(Looper.getMainLooper())
+    private var pendingSearch: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +87,6 @@ class MainActivity : Activity() {
         repository = SceneRepository(this)
         favoriteIds = repository.loadFavoriteIds()
 
-        scroll = ScrollView(this).apply { overScrollMode = View.OVER_SCROLL_ALWAYS }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(22), dp(18), dp(28))
@@ -119,11 +126,18 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, dp(12), dp(12))
         }
-        galleryContainer = GridLayout(this).apply {
-            columnCount = 2
-            useDefaultMargins = false
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        galleryAdapter = GalleryAdapter()
+        galleryList = RecyclerView(this).apply {
+            layoutManager = GridLayoutManager(this@MainActivity, 2)
+            adapter = galleryAdapter
+            setHasFixedSize(true)
+            clipToPadding = false
+            overScrollMode = View.OVER_SCROLL_ALWAYS
+            // Cards are cheap to bind but their preview decode is not; keeping a few extra off-screen
+            // holders around makes fling scrolling steady without holding all 66 previews at once.
+            setItemViewCacheSize(8)
         }
+        emptyView = createEmptyState()
 
         content.addView(createHeader())
         content.addView(status)
@@ -135,12 +149,15 @@ class MainActivity : Activity() {
             isHorizontalScrollBarEnabled = false
             addView(categoryRow)
         })
-        content.addView(galleryContainer)
-        scroll.addView(content)
+        content.addView(FrameLayout(this).apply {
+            addView(galleryList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(emptyView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
         loadingOverlay = createLoadingOverlay()
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(0xFFF8F6FB.toInt())
-            addView(scroll)
+            addView(content)
             addView(loadingOverlay)
         })
         applyInsets()
@@ -179,14 +196,16 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pendingSearch?.let { searchDebounce.removeCallbacks(it) }
         scope.cancel()
         super.onDestroy()
     }
 
     private fun applyInsets() {
-        scroll.setOnApplyWindowInsetsListener { _, insets ->
+        content.setOnApplyWindowInsetsListener { _, insets ->
             val system = insets.getInsets(WindowInsets.Type.systemBars())
-            content.setPadding(dp(18), dp(14) + system.top, dp(18), dp(28) + system.bottom)
+            content.setPadding(dp(18), dp(14) + system.top, dp(18), system.bottom)
+            galleryList.setPadding(0, 0, 0, dp(28))
             insets
         }
     }
@@ -232,15 +251,15 @@ class MainActivity : Activity() {
     }
 
     private fun installPullToRefresh() {
-        scroll.setOnTouchListener { _, event ->
+        galleryList.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (scroll.scrollY == 0) pullStartY = event.rawY
+                    if (!galleryList.canScrollVertically(-1)) pullStartY = event.rawY
                     false
                 }
                 MotionEvent.ACTION_UP -> {
                     val pulled = event.rawY - pullStartY
-                    if (!isRefreshing && scroll.scrollY == 0 && pulled > 180f) {
+                    if (!isRefreshing && !galleryList.canScrollVertically(-1) && pulled > 180f) {
                         refreshGallery(showLoading = true)
                         true
                     } else false
@@ -302,9 +321,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Debounced: every keystroke used to re-filter and rebuild the whole grid synchronously, so
+     * typing a five letter query rebuilt every card five times over.
+     */
     private fun applySearch(query: String) {
-        searchQuery = query.trim()
-        renderCurrentSection()
+        val next = query.trim()
+        // Cancel first, then bail: typing "a" and deleting it lands back on the current query, and
+        // returning early without cancelling would let the queued "a" fire 250ms later.
+        pendingSearch?.let { searchDebounce.removeCallbacks(it) }
+        pendingSearch = null
+        if (next == searchQuery) return
+        val task = Runnable {
+            searchQuery = next
+            renderCurrentSection()
+        }
+        pendingSearch = task
+        searchDebounce.postDelayed(task, SEARCH_DEBOUNCE_MS)
     }
 
     private fun rebuildOrders() {
@@ -328,15 +361,27 @@ class MainActivity : Activity() {
 
     private fun renderCurrentSection() {
         renderCategoryRail()
-        val ordered = orderedPacksForCurrentSection()
-        val filtered = ordered.filter { matchesSearch(it) }
-        galleryContainer.removeAllViews()
-        if (filtered.isEmpty()) {
-            galleryContainer.addView(emptyState())
-            if (searchQuery.isNotBlank()) galleryContainer.addView(codeLookupButton(searchQuery))
-            return
+        val filtered = orderedPacksForCurrentSection().filter { matchesSearch(it) }
+        galleryAdapter.submit(filtered)
+        updateEmptyState(filtered.isEmpty())
+    }
+
+    private fun updateEmptyState(isEmpty: Boolean) {
+        emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
+        galleryList.visibility = if (isEmpty) View.GONE else View.VISIBLE
+        if (!isEmpty) return
+        emptyText.text = when {
+            searchQuery.isNotBlank() -> "No listed wallpaper matched \u201c$searchQuery\u201d."
+            currentSection == Section.FAVORITES -> "No favourites yet. Tap \u2661 on wallpapers you love."
+            else -> "No wallpapers here yet. Pull down to refresh."
         }
-        for (pack in filtered) galleryContainer.addView(galleryItem(pack))
+        if (searchQuery.isNotBlank()) {
+            emptyAction.visibility = View.VISIBLE
+            emptyAction.text = "Try code lookup for \u201c$searchQuery\u201d"
+            emptyAction.setOnClickListener { downloadByCode(searchQuery) }
+        } else {
+            emptyAction.visibility = View.GONE
+        }
     }
 
     private fun showSortDialog() {
@@ -392,87 +437,142 @@ class MainActivity : Activity() {
         return pack.title.lowercase().contains(q) || pack.code.lowercase().contains(q)
     }
 
-    private fun galleryItem(pack: WallpaperPack): LinearLayout {
-        val isFav = favoriteIds.contains(pack.id)
-        val cardWidth = gridCardWidth()
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(12))
-            isClickable = true
-            isFocusable = true
-            foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
-                val drawable = it.getDrawable(0); it.recycle(); drawable
-            }
-            setOnClickListener { downloadPackAndOpenSetter(pack) }
-            layoutParams = GridLayout.LayoutParams().apply {
-                width = cardWidth
-                height = ViewGroup.LayoutParams.WRAP_CONTENT
-                setMargins(dp(4), dp(4), dp(4), dp(16))
-            }
-        }
-        val imageFrame = FrameLayout(this).apply {
-            clipToOutline = true
-            elevation = dp(2).toFloat()
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.58f).toInt())
-            background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(24), 0)
-        }
-        val image = ImageView(this).apply {
-            adjustViewBounds = false
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        val titleOverlay = TextView(this).apply {
-            text = pack.title
-            maxLines = 2
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding(dp(10), dp(30), dp(52), dp(12))
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x66000000, 0xE0000000.toInt()))
-        }
-        val likeButton = Button(this).apply {
-            text = if (isFav) "♥ ${pack.likeCount}" else "♡ ${pack.likeCount}"
-            textSize = 12f
-            setTextColor(if (isFav) 0xFFE91E63.toInt() else 0xFF2D2533.toInt())
-            background = roundedRect(0xEFFFFFFF.toInt(), 0x99FFFFFF.toInt(), dp(999), 1)
-            minHeight = 0
-            minWidth = 0
-            setPadding(dp(6), 0, dp(6), 0)
-            setOnClickListener {
-                val liked = !favoriteIds.contains(pack.id)
-                toggleFavorite(pack, liked)
-            }
-        }
-        imageFrame.addView(image)
-        imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96), Gravity.BOTTOM))
-        imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(72), dp(42), Gravity.BOTTOM or Gravity.END).apply {
-            bottomMargin = dp(10)
-            rightMargin = dp(8)
-        })
+    private inner class GalleryViewHolder(
+        val card: LinearLayout,
+        val image: ImageView,
+        val titleOverlay: TextView,
+        val likeButton: Button,
+        val meta: TextView,
+        val hint: TextView
+    ) : RecyclerView.ViewHolder(card)
 
-        val meta = TextView(this).apply {
-            text = "${WallpaperCategory.titleFor(pack.category)} · ${pack.viewCount} views"
-            textSize = 11f
-            setTextColor(0xFF62596A.toInt())
-            setPadding(dp(2), dp(7), dp(2), dp(1))
-        }
-        val hint = TextView(this).apply {
-            text = "Code: ${pack.code}"
-            textSize = 10f
-            maxLines = 1
-            setTextColor(0xFF8A8190.toInt())
-            setPadding(dp(2), 0, dp(2), dp(2))
-        }
-        card.addView(imageFrame)
-        card.addView(meta)
-        card.addView(hint)
+    /**
+     * Replaces the previous GridLayout, which inflated a card and started a full-resolution preview
+     * download for every pack in the gallery at once and threw them all away on each re-render.
+     */
+    private inner class GalleryAdapter : RecyclerView.Adapter<GalleryViewHolder>() {
+        private val items = mutableListOf<WallpaperPack>()
+        private var favouriteSnapshot: Set<String> = emptySet()
 
-        image.load(repository.absoluteUrl(pack.previewUrl)) {
-            crossfade(true)
-            allowHardware(false)
+        fun submit(next: List<WallpaperPack>) {
+            val nextFavourites = favoriteIds
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize() = items.size
+                override fun getNewListSize() = next.size
+                override fun areItemsTheSame(oldPos: Int, newPos: Int) = items[oldPos].id == next[newPos].id
+                override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
+                    val old = items[oldPos]
+                    val fresh = next[newPos]
+                    return old == fresh &&
+                        favouriteSnapshot.contains(old.id) == nextFavourites.contains(fresh.id)
+                }
+            })
+            items.clear()
+            items.addAll(next)
+            favouriteSnapshot = nextFavourites
+            diff.dispatchUpdatesTo(this)
         }
-        return card
+
+        override fun getItemCount(): Int = items.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): GalleryViewHolder {
+            val cardWidth = gridCardWidth()
+            val card = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, 0, dp(12))
+                isClickable = true
+                isFocusable = true
+                foreground = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
+                    val drawable = it.getDrawable(0); it.recycle(); drawable
+                }
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(dp(4), dp(4), dp(4), dp(16)) }
+            }
+            val imageFrame = FrameLayout(this@MainActivity).apply {
+                clipToOutline = true
+                elevation = dp(2).toFloat()
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (cardWidth * 1.58f).toInt())
+                background = roundedRect(0xFFEFEAF7.toInt(), 0x00000000, dp(24), 0)
+            }
+            val image = ImageView(this@MainActivity).apply {
+                adjustViewBounds = false
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            }
+            val titleOverlay = TextView(this@MainActivity).apply {
+                maxLines = 2
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFFFFF.toInt())
+                setPadding(dp(10), dp(30), dp(52), dp(12))
+                background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x66000000, 0xE0000000.toInt()))
+            }
+            val likeButton = Button(this@MainActivity).apply {
+                textSize = 12f
+                background = roundedRect(0xEFFFFFFF.toInt(), 0x99FFFFFF.toInt(), dp(999), 1)
+                minHeight = 0
+                minWidth = 0
+                setPadding(dp(6), 0, dp(6), 0)
+            }
+            imageFrame.addView(image)
+            imageFrame.addView(titleOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96), Gravity.BOTTOM))
+            imageFrame.addView(likeButton, FrameLayout.LayoutParams(dp(72), dp(42), Gravity.BOTTOM or Gravity.END).apply {
+                bottomMargin = dp(10)
+                rightMargin = dp(8)
+            })
+            val meta = TextView(this@MainActivity).apply {
+                textSize = 11f
+                setTextColor(0xFF62596A.toInt())
+                setPadding(dp(2), dp(7), dp(2), dp(1))
+            }
+            val hint = TextView(this@MainActivity).apply {
+                textSize = 10f
+                maxLines = 1
+                setTextColor(0xFF8A8190.toInt())
+                setPadding(dp(2), 0, dp(2), dp(2))
+            }
+            card.addView(imageFrame)
+            card.addView(meta)
+            card.addView(hint)
+            return GalleryViewHolder(card, image, titleOverlay, likeButton, meta, hint)
+        }
+
+        override fun onBindViewHolder(holder: GalleryViewHolder, position: Int) {
+            val pack = items[position]
+            val isFav = favoriteIds.contains(pack.id)
+            holder.card.setOnClickListener { downloadPackAndOpenSetter(pack) }
+            holder.titleOverlay.text = pack.title
+            holder.likeButton.text = if (isFav) "\u2665 ${pack.likeCount}" else "\u2661 ${pack.likeCount}"
+            holder.likeButton.setTextColor(if (isFav) 0xFFE91E63.toInt() else 0xFF2D2533.toInt())
+            holder.likeButton.setOnClickListener { toggleFavorite(pack, !favoriteIds.contains(pack.id)) }
+            holder.meta.text = "${WallpaperCategory.titleFor(pack.category)} \u00b7 ${pack.viewCount} views"
+            holder.hint.text = "Code: ${pack.code}"
+
+            val url = repository.absoluteUrl(pack.previewUrl)
+            if (holder.image.tag != url) {
+                holder.image.tag = url
+                holder.image.setImageDrawable(null)
+                holder.image.load(url) {
+                    crossfade(true)
+                    allowHardware(false)
+                    // Previews are full 1344x2992 wallpapers (several MB each). Decoding them at card
+                    // size instead of full size is the difference between ~16 MB and ~2 MB per card.
+                    size(previewTargetWidth(), previewTargetHeight())
+                }
+            }
+        }
+
+        override fun onViewRecycled(holder: GalleryViewHolder) {
+            holder.image.setImageDrawable(null)
+            holder.image.tag = null
+        }
     }
+
+    private fun previewTargetWidth(): Int = gridCardWidth()
+
+    private fun previewTargetHeight(): Int = (gridCardWidth() * 1.58f).toInt()
 
     private fun gridCardWidth(): Int {
         val screen = resources.displayMetrics.widthPixels
@@ -493,24 +593,21 @@ class MainActivity : Activity() {
         scope.launch(Dispatchers.IO) { repository.setFavorite(pack.id, liked) }
     }
 
-    private fun emptyState(): TextView {
-        return TextView(this).apply {
-            text = when {
-                searchQuery.isNotBlank() -> "No listed wallpaper matched “$searchQuery”."
-                currentSection == Section.FAVORITES -> "No favourites yet. Tap ♡ on wallpapers you love."
-                else -> "No wallpapers here yet. Pull down to refresh."
-            }
+    private fun createEmptyState(): LinearLayout {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+        }
+        emptyText = TextView(this).apply {
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(0, dp(80), 0, dp(12))
         }
-    }
-
-    private fun codeLookupButton(code: String): Button {
-        return Button(this).apply {
-            text = "Try code lookup for “$code”"
-            setOnClickListener { downloadByCode(code) }
-        }
+        emptyAction = Button(this).apply { visibility = View.GONE }
+        container.addView(emptyText)
+        container.addView(emptyAction)
+        return container
     }
 
     private fun sectionChip(label: String, selected: Boolean, onClick: () -> Unit): TextView {
@@ -707,6 +804,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val HIGHLIGHT_COUNT = 5
+        private const val SEARCH_DEBOUNCE_MS = 250L
         private const val MENU_FEATURED = 1
         private const val MENU_BROWSE = 2
         private const val MENU_FAVORITES = 3

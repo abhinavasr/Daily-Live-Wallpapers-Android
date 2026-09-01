@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import kotlin.math.PI
+import kotlin.math.abs
 
 class MotionController(
     context: Context,
@@ -25,6 +26,9 @@ class MotionController(
     var tiltY: Float = 0f
         private set
 
+    private var notifiedTiltX: Float = 0f
+    private var notifiedTiltY: Float = 0f
+
     fun start() {
         val sensor = rotationSensor ?: accelerometer ?: return
         sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
@@ -43,6 +47,11 @@ class MotionController(
         val alpha = smoothing.coerceIn(0.02f, 1f)
         tiltX += (target.first - tiltX) * alpha
         tiltY += (target.second - tiltY) * alpha
+        // Smoothing means tilt keeps creeping toward the target forever. Without this gate a phone
+        // lying still on a desk still redrew the whole wallpaper ~50x a second.
+        if (abs(tiltX - notifiedTiltX) < MOTION_EPSILON && abs(tiltY - notifiedTiltY) < MOTION_EPSILON) return
+        notifiedTiltX = tiltX
+        notifiedTiltY = tiltY
         onMotion()
     }
 
@@ -63,4 +72,9 @@ class MotionController(
     }
 
     private fun Float.toDegrees(): Float = (this * 180f / PI.toFloat())
+
+    private companion object {
+        /** ~0.1px of parallax on the fastest layer; below this a redraw is not visible. */
+        const val MOTION_EPSILON = 0.002f
+    }
 }

@@ -69,6 +69,10 @@ class DepthWallpaperService : WallpaperService() {
         override fun onDestroy() {
             handler.removeCallbacks(redraw)
             motion?.stop()
+            // Engines are recreated on every wallpaper change and preview; without this the decoded
+            // layer bitmaps of each dead engine stayed on the heap.
+            renderer?.release()
+            renderer = null
             super.onDestroy()
         }
 
