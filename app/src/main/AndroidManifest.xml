@@ -8,9 +8,9 @@
     <application
         android:name=".WallpaperApp"
         android:allowBackup="true"
-        android:icon="@drawable/daily_live_wallpapers_icon"
+        android:icon="@mipmap/ic_launcher"
         android:label="Daily Live Wallpapers"
-        android:roundIcon="@drawable/daily_live_wallpapers_icon"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
